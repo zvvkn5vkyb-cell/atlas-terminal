@@ -1,5 +1,6 @@
 import type { IMarketDataProvider } from './MarketDataProvider'
 import { MockMarketDataProvider } from './MockMarketDataProvider'
+import { PolygonMarketDataProvider } from './PolygonMarketDataProvider'
 import type {
   IndexCard,
   FxRate,
@@ -11,6 +12,12 @@ import type {
 } from './types'
 import type { DataSource, MarketMovers } from './types'
 
+function buildProvider(): IMarketDataProvider {
+  const requested = (import.meta.env.VITE_MARKET_PROVIDER as string | undefined)?.toLowerCase()
+  if (requested === 'polygon') return new PolygonMarketDataProvider()
+  return new MockMarketDataProvider()
+}
+
 export class MarketDataService {
   private static instance: MarketDataService
   private provider: IMarketDataProvider
@@ -21,12 +28,12 @@ export class MarketDataService {
 
   static getInstance(): MarketDataService {
     if (!MarketDataService.instance) {
-      MarketDataService.instance = new MarketDataService(new MockMarketDataProvider())
+      MarketDataService.instance = new MarketDataService(buildProvider())
     }
     return MarketDataService.instance
   }
 
-  /** Swap the underlying provider (e.g. when wiring a live API later). */
+  /** Swap the underlying provider at runtime (e.g. for testing). */
   static setProvider(provider: IMarketDataProvider): void {
     MarketDataService.getInstance().provider = provider
   }
@@ -39,31 +46,14 @@ export class MarketDataService {
     return this.provider.name
   }
 
-  getIndices(): IndexCard[] {
-    return this.provider.getIndices()
-  }
+  getIndices(): IndexCard[] { return this.provider.getIndices() }
+  getFxRates(): FxRate[] { return this.provider.getFxRates() }
+  getCommodities(): CommodityQuote[] { return this.provider.getCommodities() }
+  getRates(): RateQuote[] { return this.provider.getRates() }
+  getMovers(): MarketMovers { return this.provider.getMovers() }
+  getMarketBreadth(): MarketBreadth { return this.provider.getMarketBreadth() }
 
-  getFxRates(): FxRate[] {
-    return this.provider.getFxRates()
-  }
-
-  getCommodities(): CommodityQuote[] {
-    return this.provider.getCommodities()
-  }
-
-  getRates(): RateQuote[] {
-    return this.provider.getRates()
-  }
-
-  getMovers(): MarketMovers {
-    return this.provider.getMovers()
-  }
-
-  getMarketBreadth(): MarketBreadth {
-    return this.provider.getMarketBreadth()
-  }
-
-  getQuote(symbol: string): Quote {
+  getQuote(symbol: string): Promise<Quote> {
     return this.provider.getQuote(symbol)
   }
 

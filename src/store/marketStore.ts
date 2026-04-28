@@ -16,7 +16,7 @@ interface MarketState {
   lastUpdated: string
   dataSource: string
   quoteCache: Record<string, Quote>
-  loadQuote: (symbol: string) => void
+  loadQuote: (symbol: string) => Promise<void>
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
@@ -31,8 +31,8 @@ export const useMarketStore = create<MarketState>((set) => ({
   dataSource: svc.dataSource,
   quoteCache: {},
 
-  loadQuote: (symbol: string) => {
-    const quote = svc.getQuote(symbol)
+  loadQuote: async (symbol: string) => {
+    const quote = await svc.getQuote(symbol)
     set((state) => ({ quoteCache: { ...state.quoteCache, [symbol]: quote } }))
   },
 }))

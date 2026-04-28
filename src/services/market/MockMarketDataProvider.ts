@@ -49,9 +49,7 @@ export class MockMarketDataProvider implements IMarketDataProvider {
     return MOCK_MARKET_BREADTH
   }
 
-  getQuote(symbol: string): Quote {
-    // Return mock quote adapted to the requested symbol.
-    // All non-symbol fields are representative mock values.
+  async getQuote(symbol: string): Promise<Quote> {
     return { ...MOCK_SECURITY_QUOTE, symbol }
   }
 

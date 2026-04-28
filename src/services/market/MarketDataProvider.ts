@@ -19,6 +19,6 @@ export interface IMarketDataProvider {
   getRates(): RateQuote[]
   getMovers(): MarketMovers
   getMarketBreadth(): MarketBreadth
-  getQuote(symbol: string): Quote
+  getQuote(symbol: string): Promise<Quote>
   getProviderHealth(): ProviderHealth[]
 }
