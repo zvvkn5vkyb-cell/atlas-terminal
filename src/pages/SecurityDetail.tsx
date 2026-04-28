@@ -3,8 +3,59 @@ import { useWorkspaceStore } from '@/store/workspaceStore'
 import { useMarketStore } from '@/store/marketStore'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { MetricCard } from '@/components/ui/MetricCard'
-import { DegradedDataBadge } from '@/components/ui/DegradedDataBadge'
-import { formatNumber, formatCompact, pnlClass, formatPct } from '@/lib/format'
+import { formatNumber, formatCompact, formatDateTime, pnlClass, formatPct } from '@/lib/format'
+import type { Quote } from '@/types/market'
+
+const CANADIAN_SUFFIX = /\.(TO|TSX|V)$/i
+
+function QuoteProvenanceBadge({ quote, symbol }: { quote: Quote; symbol: string }) {
+  const isLive = quote.trustMode === 'TRUSTED' && quote.exchange === 'Polygon.io'
+  const isCanadian = CANADIAN_SUFFIX.test(symbol)
+
+  if (isLive) {
+    return (
+      <span className="text-2xs font-mono text-terminalGreen border border-terminalGreen/40 px-1.5 py-0.5">
+        QUOTE: LIVE
+      </span>
+    )
+  }
+
+  if (quote.trustMode === 'DEGRADED' && isCanadian) {
+    return (
+      <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1.5 py-0.5">
+        QUOTE: FALLBACK
+      </span>
+    )
+  }
+
+  if (quote.trustMode === 'DEGRADED') {
+    return (
+      <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1.5 py-0.5">
+        QUOTE: DEGRADED
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-2xs font-mono text-terminalMuted border border-terminalMuted/30 px-1.5 py-0.5">
+      QUOTE: MOCK
+    </span>
+  )
+}
+
+function FallbackReason({ quote, symbol }: { quote: Quote; symbol: string }) {
+  if (quote.trustMode !== 'DEGRADED') return null
+
+  if (CANADIAN_SUFFIX.test(symbol)) {
+    return (
+      <div className="text-2xs font-mono text-terminalMuted/70 mt-0.5">
+        Polygon US equities endpoint does not support this symbol
+      </div>
+    )
+  }
+
+  return null
+}
 
 export function SecurityDetail() {
   const { activeSymbol } = useWorkspaceStore()
@@ -33,9 +84,12 @@ export function SecurityDetail() {
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xl font-mono font-bold text-terminalAmber">{quote.symbol}</span>
               <span className="text-xs font-mono text-terminalMuted">{quote.exchange}</span>
-              <DegradedDataBadge trustMode={quote.trustMode} />
             </div>
-            <div className="text-sm font-mono text-terminalSubtext">{quote.name}</div>
+            <div className="text-sm font-mono text-terminalSubtext mb-1">{quote.name}</div>
+            <div className="flex items-center gap-2">
+              <QuoteProvenanceBadge quote={quote} symbol={activeSymbol} />
+              <FallbackReason quote={quote} symbol={activeSymbol} />
+            </div>
           </div>
 
           <div className="ml-auto text-right">
@@ -45,7 +99,10 @@ export function SecurityDetail() {
             <div className={`text-sm font-mono tabular-nums ${pnlClass(quote.change)}`}>
               {quote.change >= 0 ? '+' : ''}{formatNumber(quote.change, 2)} ({formatPct(quote.changePct)})
             </div>
-            <div className="text-2xs text-terminalMuted font-mono">{quote.currency}</div>
+            <div className="text-2xs text-terminalMuted font-mono mt-0.5">{quote.currency}</div>
+            <div className="text-2xs text-terminalMuted/60 font-mono">
+              {formatDateTime(quote.lastUpdated)}
+            </div>
           </div>
         </div>
       </div>
@@ -84,7 +141,6 @@ export function SecurityDetail() {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        {/* Technical indicators */}
         <div className="bg-terminalPanel border border-terminalBorder">
           <SectionHeader title="Technical Indicators" />
           {[
@@ -100,12 +156,9 @@ export function SecurityDetail() {
               <span className="text-xs font-mono text-terminalMuted tabular-nums">{row.value}</span>
             </div>
           ))}
-          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">
-            Requires price history
-          </div>
+          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">Requires price history</div>
         </div>
 
-        {/* Valuation */}
         <div className="bg-terminalPanel border border-terminalBorder">
           <SectionHeader title="Valuation" />
           {[
@@ -122,13 +175,10 @@ export function SecurityDetail() {
               <span className="text-xs font-mono text-terminalMuted tabular-nums">{row.value}</span>
             </div>
           ))}
-          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">
-            Requires fundamentals feed
-          </div>
+          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">Requires fundamentals feed</div>
         </div>
       </div>
 
-      {/* News/Filings placeholder */}
       <div className="bg-terminalPanel border border-terminalBorder">
         <SectionHeader title={`News & Filings — ${quote.symbol}`} />
         <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">

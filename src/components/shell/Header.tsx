@@ -1,5 +1,6 @@
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import { useSystemStore } from '@/store/systemStore'
+import { useMarketStore } from '@/store/marketStore'
 import { getModuleTitle } from '@/lib/routes'
 import { formatDateTime } from '@/lib/format'
 import { Button } from '@/components/ui/Button'
@@ -8,17 +9,31 @@ export function Header() {
   const { activeModule, sidebarCollapsed, toggleSidebar, setCommandPaletteOpen } =
     useWorkspaceStore()
   const { status } = useSystemStore()
+  const { dataSource } = useMarketStore()
 
-  const statusColor =
-    status.providerStatus === 'ALL_UP'
-      ? 'text-terminalGreen'
-      : status.providerStatus === 'DEGRADED' || status.providerStatus === 'PARTIAL'
-        ? 'text-terminalAmber'
-        : 'text-terminalRed'
+  // True failure overrides everything; partial coverage is not a failure.
+  const isFailure =
+    status.providerStatus === 'DOWN' ||
+    status.providerStatus === 'DEGRADED'
+
+  const statusLabel = isFailure
+    ? `● ${status.providerStatus}`
+    : dataSource === 'HYBRID'
+      ? '● HYBRID DATA'
+      : dataSource === 'LIVE'
+        ? '● LIVE'
+        : '● MOCK DATA'
+
+  const statusColor = isFailure
+    ? 'text-terminalRed'
+    : dataSource === 'HYBRID'
+      ? 'text-terminalCyan'
+      : dataSource === 'LIVE'
+        ? 'text-terminalGreen'
+        : 'text-terminalAmber'
 
   return (
     <header className="flex items-center h-8 px-3 border-b border-terminalBorder bg-terminalPanel shrink-0 gap-3">
-      {/* Sidebar toggle */}
       <button
         onClick={toggleSidebar}
         title="Toggle sidebar (Alt+S)"
@@ -27,23 +42,20 @@ export function Header() {
         {sidebarCollapsed ? '›' : '‹'}
       </button>
 
-      {/* Module title */}
       <span className="text-xs font-mono text-terminalText tracking-wide">
         {getModuleTitle(activeModule)}
       </span>
 
       <div className="flex-1" />
 
-      {/* Status */}
       <span className={`text-2xs font-mono ${statusColor}`}>
-        {status.providerStatus === 'ALL_UP' ? '● LIVE' : `● ${status.providerStatus}`}
+        {statusLabel}
       </span>
 
       <span className="text-2xs font-mono text-terminalMuted">
         {formatDateTime(status.dataAsOf)}
       </span>
 
-      {/* Command palette trigger */}
       <Button
         variant="ghost"
         size="xs"

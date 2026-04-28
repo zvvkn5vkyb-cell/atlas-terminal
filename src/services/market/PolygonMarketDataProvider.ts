@@ -37,7 +37,8 @@ interface CachedQuote {
 
 export class PolygonMarketDataProvider implements IMarketDataProvider {
   readonly name = 'PolygonMarketDataProvider'
-  readonly dataSource = 'LIVE' as const
+  // HYBRID because non-quote methods still delegate to mock
+  readonly dataSource = 'HYBRID' as const
 
   private readonly apiKey: string | undefined
   private readonly fallback: MockMarketDataProvider
@@ -152,13 +153,15 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       errorMessage: this.lastError,
     }
 
-    // Include mock health for the methods still delegated to it
-    const mockHealth = this.fallback.getProviderHealth().map(p => ({
-      ...p,
-      name: `${p.name} (fallback)`,
-    }))
+    // Only include the mock provider itself as fallback — not the unconfigured
+    // alpha_vantage / polygon stubs from the mock health list, which would
+    // otherwise pollute the UP/DOWN count with phantom DOWN entries.
+    const mockFallback = this.fallback
+      .getProviderHealth()
+      .filter(p => p.providerId === 'mock')
+      .map(p => ({ ...p, name: `${p.name} (fallback)` }))
 
-    return [polygonHealth, ...mockHealth]
+    return [polygonHealth, ...mockFallback]
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

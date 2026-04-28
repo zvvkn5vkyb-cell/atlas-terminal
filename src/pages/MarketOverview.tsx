@@ -8,6 +8,12 @@ export function MarketOverview() {
 
   return (
     <div className="p-2 flex flex-col gap-2">
+      {/* Data provenance disclosure */}
+      <div className="flex items-center gap-2 px-3 py-1 bg-terminalPanel border border-terminalAmber/20 text-2xs font-mono">
+        <span className="text-terminalAmber">MOCK DATA</span>
+        <span className="text-terminalMuted">— indices, FX, rates, commodities, movers, and breadth are simulated. Live provider not yet connected for these feeds.</span>
+      </div>
+
       {/* Index Cards */}
       <div className="bg-terminalPanel border border-terminalBorder">
         <SectionHeader title="Global Indices" />
