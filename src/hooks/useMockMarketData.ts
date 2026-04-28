@@ -1,8 +1,17 @@
 import { useMarketStore } from '@/store/marketStore'
 
 export function useMockMarketData() {
-  const { indices, fxRates, commodities, rates, moversUp, moversDown, breadth, lastUpdated } =
-    useMarketStore()
+  const {
+    indices,
+    fxRates,
+    commodities,
+    rates,
+    moversUp,
+    moversDown,
+    breadth,
+    lastUpdated,
+    dataSource,
+  } = useMarketStore()
 
-  return { indices, fxRates, commodities, rates, moversUp, moversDown, breadth, lastUpdated }
+  return { indices, fxRates, commodities, rates, moversUp, moversDown, breadth, lastUpdated, dataSource }
 }

@@ -1,7 +1,17 @@
 import { create } from 'zustand'
 import type { SystemStatus } from '@/types/system'
 import type { ProviderHealth } from '@/types/market'
-import { MOCK_PROVIDER_HEALTH } from '@/lib/mockData'
+import { MarketDataService } from '@/services/market/MarketDataService'
+
+const svc = MarketDataService.getInstance()
+const providerHealth = svc.getProviderHealth()
+const upCount = providerHealth.filter((p) => p.status === 'UP').length
+const totalCount = providerHealth.length
+
+const providerStatus: SystemStatus['providerStatus'] =
+  upCount === totalCount ? 'ALL_UP' :
+  upCount === 0 ? 'DOWN' :
+  upCount / totalCount >= 0.5 ? 'DEGRADED' : 'PARTIAL'
 
 interface SystemState {
   status: SystemStatus
@@ -11,10 +21,10 @@ interface SystemState {
 export const useSystemStore = create<SystemState>(() => ({
   status: {
     dataAsOf: new Date().toISOString(),
-    providerStatus: 'DEGRADED',
-    activeProviders: 1,
-    totalProviders: 3,
+    providerStatus,
+    activeProviders: upCount,
+    totalProviders: totalCount,
     lastRefresh: new Date().toISOString(),
   },
-  providerHealth: MOCK_PROVIDER_HEALTH,
+  providerHealth,
 }))

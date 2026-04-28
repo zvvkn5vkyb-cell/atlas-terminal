@@ -1,13 +1,28 @@
+import { useEffect } from 'react'
 import { useWorkspaceStore } from '@/store/workspaceStore'
-import { MOCK_SECURITY_QUOTE } from '@/lib/mockData'
+import { useMarketStore } from '@/store/marketStore'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { MetricCard } from '@/components/ui/MetricCard'
 import { DegradedDataBadge } from '@/components/ui/DegradedDataBadge'
-import { formatCurrency, formatNumber, formatCompact, pnlClass, formatPct } from '@/lib/format'
+import { formatNumber, formatCompact, pnlClass, formatPct } from '@/lib/format'
 
 export function SecurityDetail() {
   const { activeSymbol } = useWorkspaceStore()
-  const quote = { ...MOCK_SECURITY_QUOTE, symbol: activeSymbol }
+  const { quoteCache, loadQuote } = useMarketStore()
+
+  useEffect(() => {
+    loadQuote(activeSymbol)
+  }, [activeSymbol, loadQuote])
+
+  const quote = quoteCache[activeSymbol]
+
+  if (!quote) {
+    return (
+      <div className="p-4 text-xs font-mono text-terminalMuted">
+        Loading {activeSymbol}…
+      </div>
+    )
+  }
 
   return (
     <div className="p-2 flex flex-col gap-2">
@@ -47,7 +62,7 @@ export function SecurityDetail() {
       <div className="bg-terminalPanel border border-terminalBorder">
         <SectionHeader title="Price Chart" action={
           <div className="flex gap-1">
-            {['1D','1W','1M','3M','1Y'].map(tf => (
+            {['1D', '1W', '1M', '3M', '1Y'].map(tf => (
               <button key={tf} className="text-2xs font-mono text-terminalMuted hover:text-terminalAmber px-1">{tf}</button>
             ))}
           </div>
@@ -57,7 +72,6 @@ export function SecurityDetail() {
             <div className="text-xs font-mono text-terminalMuted">Chart placeholder</div>
             <div className="text-2xs text-terminalMuted/60 font-mono mt-1">Requires price history data</div>
           </div>
-          {/* Grid lines */}
           <svg className="absolute inset-0 w-full h-full opacity-5" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <pattern id="grid" width="40" height="30" patternUnits="userSpaceOnUse">
