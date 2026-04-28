@@ -1,0 +1,49 @@
+import { useSystemStore } from '@/store/systemStore'
+import { usePortfolioStore } from '@/store/portfolioStore'
+import { formatCurrency, formatDateTime } from '@/lib/format'
+
+export function StatusBar() {
+  const { status, providerHealth } = useSystemStore()
+  const { summary } = usePortfolioStore()
+
+  const upCount = providerHealth.filter(p => p.status === 'UP').length
+  const totalCount = providerHealth.length
+
+  return (
+    <footer className="flex items-center h-6 px-3 border-t border-terminalBorder bg-terminalSidebar shrink-0 gap-4 overflow-hidden">
+      <span className="text-2xs font-mono text-terminalMuted">
+        ATLAS TERMINAL v0.1
+      </span>
+
+      <span className="text-terminalBorder">|</span>
+
+      <span className="text-2xs font-mono text-terminalMuted">
+        PROVIDERS: {upCount}/{totalCount}
+      </span>
+
+      <span className="text-terminalBorder">|</span>
+
+      <span className="text-2xs font-mono text-terminalMuted">
+        NAV: <span className="text-terminalText">{formatCurrency(summary.totalValue, 'USD', true)}</span>
+      </span>
+
+      <span className="text-terminalBorder">|</span>
+
+      <span className="text-2xs font-mono text-terminalMuted">
+        HOLDINGS: <span className="text-terminalText">{summary.holdingCount}</span>
+      </span>
+
+      <div className="flex-1" />
+
+      <span className="text-2xs font-mono text-terminalMuted">
+        DATA MODE: <span className="text-terminalAmber">MOCK</span>
+      </span>
+
+      <span className="text-terminalBorder">|</span>
+
+      <span className="text-2xs font-mono text-terminalMuted">
+        AS OF: {formatDateTime(status.dataAsOf)}
+      </span>
+    </footer>
+  )
+}
