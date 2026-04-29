@@ -7,7 +7,7 @@ import type {
   Quote,
   ProviderHealth,
 } from './types'
-import type { DataSource, MarketMovers } from './types'
+import type { DataSource, MarketMovers, PriceRange, HistoricalPricesResult } from './types'
 
 export interface IMarketDataProvider {
   readonly name: string
@@ -20,5 +20,6 @@ export interface IMarketDataProvider {
   getMovers(): MarketMovers
   getMarketBreadth(): MarketBreadth
   getQuote(symbol: string): Promise<Quote>
+  getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult>
   getProviderHealth(): ProviderHealth[]
 }

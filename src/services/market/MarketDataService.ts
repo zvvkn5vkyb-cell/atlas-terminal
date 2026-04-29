@@ -9,6 +9,8 @@ import type {
   MarketBreadth,
   Quote,
   ProviderHealth,
+  HistoricalPricesResult,
+  PriceRange,
 } from './types'
 import type { DataSource, MarketMovers } from './types'
 
@@ -33,18 +35,12 @@ export class MarketDataService {
     return MarketDataService.instance
   }
 
-  /** Swap the underlying provider at runtime (e.g. for testing). */
   static setProvider(provider: IMarketDataProvider): void {
     MarketDataService.getInstance().provider = provider
   }
 
-  get dataSource(): DataSource {
-    return this.provider.dataSource
-  }
-
-  get providerName(): string {
-    return this.provider.name
-  }
+  get dataSource(): DataSource { return this.provider.dataSource }
+  get providerName(): string { return this.provider.name }
 
   getIndices(): IndexCard[] { return this.provider.getIndices() }
   getFxRates(): FxRate[] { return this.provider.getFxRates() }
@@ -52,12 +48,9 @@ export class MarketDataService {
   getRates(): RateQuote[] { return this.provider.getRates() }
   getMovers(): MarketMovers { return this.provider.getMovers() }
   getMarketBreadth(): MarketBreadth { return this.provider.getMarketBreadth() }
-
-  getQuote(symbol: string): Promise<Quote> {
-    return this.provider.getQuote(symbol)
+  getQuote(symbol: string): Promise<Quote> { return this.provider.getQuote(symbol) }
+  getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
+    return this.provider.getHistoricalPrices(symbol, range)
   }
-
-  getProviderHealth(): ProviderHealth[] {
-    return this.provider.getProviderHealth()
-  }
+  getProviderHealth(): ProviderHealth[] { return this.provider.getProviderHealth() }
 }

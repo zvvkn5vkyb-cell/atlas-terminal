@@ -8,10 +8,14 @@ import type {
   MarketBreadth,
   Quote,
   ProviderHealth,
+  OHLCVBar,
+  HistoricalPricesResult,
+  PriceRange,
 } from './types'
 import type { MarketMovers } from './types'
 
-// Polygon v2 snapshot response shape (partial)
+// ─── Polygon response shapes ──────────────────────────────────────────────────
+
 interface PolygonSnapshotResponse {
   status: string
   ticker?: {
@@ -27,13 +31,54 @@ interface PolygonSnapshotResponse {
   message?: string
 }
 
-const POLYGON_BASE = 'https://api.polygon.io'
-const CACHE_TTL_MS = 30_000
-
-interface CachedQuote {
-  quote: Quote
-  fetchedAt: number
+interface PolygonAggBar {
+  t: number  // Unix ms
+  o: number
+  h: number
+  l: number
+  c: number
+  v: number
 }
+
+interface PolygonAggsResponse {
+  status: string
+  ticker?: string
+  resultsCount?: number
+  results?: PolygonAggBar[] | null
+  error?: string
+  message?: string
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const POLYGON_BASE = 'https://api.polygon.io'
+const QUOTE_CACHE_TTL_MS = 30_000
+const HISTORY_CACHE_TTL_MS = 5 * 60_000  // 5 min — price bars change slowly
+const CANADIAN_RE = /\.(TO|TSX|V)$/i
+
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function subtractDays(d: Date, days: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() - days)
+  return r
+}
+
+// Extra calendar days added to each range to absorb weekends / holidays
+const RANGE_PARAMS: Record<PriceRange, { calDays: number; multiplier: number; timespan: string }> = {
+  '1D':  { calDays: 3,   multiplier: 30, timespan: 'minute' },
+  '1W':  { calDays: 9,   multiplier: 1,  timespan: 'day' },
+  '1M':  { calDays: 33,  multiplier: 1,  timespan: 'day' },
+  '3M':  { calDays: 95,  multiplier: 1,  timespan: 'day' },
+  '1Y':  { calDays: 370, multiplier: 1,  timespan: 'day' },
+}
+
+// ─── Caches ───────────────────────────────────────────────────────────────────
+
+interface CachedQuote { quote: Quote; fetchedAt: number }
+interface CachedHistory { result: HistoricalPricesResult; fetchedAt: number }
 
 export class PolygonMarketDataProvider implements IMarketDataProvider {
   readonly name = 'PolygonMarketDataProvider'
@@ -42,7 +87,8 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
   private readonly apiKey: string | undefined
   private readonly fallback: MockMarketDataProvider
-  private readonly cache = new Map<string, CachedQuote>()
+  private readonly quoteCache = new Map<string, CachedQuote>()
+  private readonly historyCache = new Map<string, CachedHistory>()
   private lastStatus: 'UP' | 'DEGRADED' | 'DOWN'
   private lastError: string | undefined
   private lastCheck: string
@@ -54,7 +100,7 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
     this.lastCheck = new Date().toISOString()
   }
 
-  // ─── Delegated to mock (not yet implemented for Polygon) ──────────────────
+  // ─── Delegated to mock ────────────────────────────────────────────────────
 
   getIndices(): IndexCard[] { return this.fallback.getIndices() }
   getFxRates(): FxRate[] { return this.fallback.getFxRates() }
@@ -66,58 +112,33 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
   // ─── getQuote ─────────────────────────────────────────────────────────────
 
   async getQuote(symbol: string): Promise<Quote> {
-    if (!this.apiKey) {
-      return this.degraded(symbol, 'API key not configured')
+    if (!this.apiKey) return this.degradedQuote(symbol)
+    if (CANADIAN_RE.test(symbol)) return this.degradedQuote(symbol)
+
+    const cached = this.quoteCache.get(symbol)
+    if (cached && Date.now() - cached.fetchedAt < QUOTE_CACHE_TTL_MS) return cached.quote
+
+    const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(symbol)}?apiKey=${this.apiKey}`
+    let res: Response
+    try { res = await fetch(url) } catch (err) {
+      return this.recordQuoteError(symbol, err instanceof Error ? err.message : 'Network error')
     }
 
-    // Canadian / TSX symbols: Polygon US equities endpoint does not cover them
-    if (symbol.includes('.TO') || symbol.includes('.TSX') || symbol.includes('.V')) {
-      return this.degraded(symbol, 'Symbol not supported by Polygon US equities endpoint')
-    }
-
-    // Return cached value if still fresh
-    const cached = this.cache.get(symbol)
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      return cached.quote
-    }
-
-    const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(symbol)}`
-
-    let response: Response
-    try {
-      response = await fetch(`${url}?apiKey=${this.apiKey}`)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Network error'
-      return this.recordError(symbol, msg)
-    }
-
-    if (response.status === 403) {
-      return this.recordError(symbol, 'API key rejected (403)')
-    }
-    if (response.status === 404) {
-      return this.degraded(symbol, `Symbol not found: ${symbol}`)
-    }
-    if (!response.ok) {
-      return this.recordError(symbol, `HTTP ${response.status}`)
-    }
+    if (res.status === 403) return this.recordQuoteError(symbol, 'API key rejected (403)')
+    if (res.status === 404) return this.degradedQuote(symbol)
+    if (!res.ok) return this.recordQuoteError(symbol, `HTTP ${res.status}`)
 
     let body: PolygonSnapshotResponse
-    try {
-      body = (await response.json()) as PolygonSnapshotResponse
-    } catch {
-      return this.recordError(symbol, 'Failed to parse response')
+    try { body = (await res.json()) as PolygonSnapshotResponse } catch {
+      return this.recordQuoteError(symbol, 'Failed to parse response')
     }
 
     if (body.status !== 'OK' || !body.ticker) {
-      const reason = body.error ?? body.message ?? 'Unexpected API response'
-      return this.recordError(symbol, reason)
+      return this.recordQuoteError(symbol, body.error ?? body.message ?? 'Unexpected response')
     }
 
     const t = body.ticker
-    // Use day close if available, fall back to prevDay close, then lastTrade
     const price = t.day?.c ?? t.prevDay?.c ?? t.lastTrade?.p ?? 0
-    const volume = t.day?.v ?? 0
-    // Polygon updated is nanoseconds; convert to ms
     const updatedMs = t.updated ? Math.floor(t.updated / 1_000_000) : Date.now()
 
     const quote: Quote = {
@@ -126,7 +147,7 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       price,
       change: t.todaysChange ?? 0,
       changePct: t.todaysChangePerc ?? 0,
-      volume,
+      volume: t.day?.v ?? 0,
       marketCap: undefined,
       currency: 'USD',
       exchange: 'Polygon.io',
@@ -134,12 +155,88 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       trustMode: 'TRUSTED',
     }
 
-    this.cache.set(symbol, { quote, fetchedAt: Date.now() })
+    this.quoteCache.set(symbol, { quote, fetchedAt: Date.now() })
     this.lastStatus = 'UP'
     this.lastError = undefined
     this.lastCheck = new Date().toISOString()
-
     return quote
+  }
+
+  // ─── getHistoricalPrices ──────────────────────────────────────────────────
+
+  async getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
+    // Canadian symbols — degrade immediately
+    if (CANADIAN_RE.test(symbol)) {
+      const fb = await this.fallback.getHistoricalPrices(symbol, range)
+      return {
+        ...fb,
+        trustMode: 'DEGRADED',
+        fallbackReason: 'Polygon US equities endpoint does not support this symbol',
+      }
+    }
+
+    if (!this.apiKey) {
+      const fb = await this.fallback.getHistoricalPrices(symbol, range)
+      return { ...fb, trustMode: 'DEGRADED', fallbackReason: 'API key not configured' }
+    }
+
+    const cacheKey = `${symbol}::${range}`
+    const cached = this.historyCache.get(cacheKey)
+    if (cached && Date.now() - cached.fetchedAt < HISTORY_CACHE_TTL_MS) return cached.result
+
+    const { calDays, multiplier, timespan } = RANGE_PARAMS[range]
+    const to = toDateStr(new Date())
+    const from = toDateStr(subtractDays(new Date(), calDays))
+    const url = `${POLYGON_BASE}/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/${multiplier}/${timespan}/${from}/${to}?adjusted=true&sort=asc&limit=1000&apiKey=${this.apiKey}`
+
+    let res: Response
+    try { res = await fetch(url) } catch (err) {
+      return this.degradedHistory(symbol, range, err instanceof Error ? err.message : 'Network error')
+    }
+
+    if (res.status === 403) return this.degradedHistory(symbol, range, 'API key rejected (403)')
+    if (res.status === 404) return this.degradedHistory(symbol, range, `Symbol not found: ${symbol}`)
+    if (!res.ok) return this.degradedHistory(symbol, range, `HTTP ${res.status}`)
+
+    let body: PolygonAggsResponse
+    try { body = (await res.json()) as PolygonAggsResponse } catch {
+      return this.degradedHistory(symbol, range, 'Failed to parse response')
+    }
+
+    if (body.status !== 'OK') {
+      return this.degradedHistory(symbol, range, body.error ?? body.message ?? 'Unexpected response')
+    }
+
+    const rawBars = body.results ?? []
+
+    if (rawBars.length === 0) {
+      // No bars returned (market closed / weekend) — degrade gracefully
+      return this.degradedHistory(symbol, range, 'No price data returned for requested range')
+    }
+
+    const bars: OHLCVBar[] = rawBars.map(b => ({
+      timestamp: new Date(b.t).toISOString(),
+      open: b.o,
+      high: b.h,
+      low: b.l,
+      close: b.c,
+      volume: b.v,
+    }))
+
+    const result: HistoricalPricesResult = {
+      symbol,
+      range,
+      bars,
+      provider: 'Polygon.io',
+      trustMode: 'TRUSTED',
+      isStale: false,
+    }
+
+    this.historyCache.set(cacheKey, { result, fetchedAt: Date.now() })
+    this.lastStatus = 'UP'
+    this.lastError = undefined
+    this.lastCheck = new Date().toISOString()
+    return result
   }
 
   // ─── getProviderHealth ────────────────────────────────────────────────────
@@ -153,9 +250,6 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       errorMessage: this.lastError,
     }
 
-    // Only include the mock provider itself as fallback — not the unconfigured
-    // alpha_vantage / polygon stubs from the mock health list, which would
-    // otherwise pollute the UP/DOWN count with phantom DOWN entries.
     const mockFallback = this.fallback
       .getProviderHealth()
       .filter(p => p.providerId === 'mock')
@@ -166,15 +260,24 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private async degraded(symbol: string, _reason: string): Promise<Quote> {
+  private async degradedQuote(symbol: string): Promise<Quote> {
     const base = await this.fallback.getQuote(symbol)
     return { ...base, symbol, trustMode: 'DEGRADED' as const }
   }
 
-  private async recordError(symbol: string, reason: string): Promise<Quote> {
+  private async recordQuoteError(symbol: string, reason: string): Promise<Quote> {
     this.lastStatus = 'DEGRADED'
     this.lastError = reason
     this.lastCheck = new Date().toISOString()
-    return this.degraded(symbol, reason)
+    return this.degradedQuote(symbol)
+  }
+
+  private async degradedHistory(
+    symbol: string,
+    range: PriceRange,
+    reason: string,
+  ): Promise<HistoricalPricesResult> {
+    const fb = await this.fallback.getHistoricalPrices(symbol, range)
+    return { ...fb, trustMode: 'DEGRADED', fallbackReason: reason }
   }
 }
