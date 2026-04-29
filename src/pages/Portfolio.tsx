@@ -1,3 +1,4 @@
+import { usePortfolioStore } from '@/store/portfolioStore'
 import { PerformanceStrip } from '@/components/portfolio/PerformanceStrip'
 import { RiskSummaryStrip } from '@/components/portfolio/RiskSummaryStrip'
 import { SummaryStrip } from '@/components/portfolio/SummaryStrip'
@@ -7,6 +8,70 @@ import { AllocationBlock } from '@/components/portfolio/AllocationBlock'
 import { CashBlock } from '@/components/portfolio/CashBlock'
 import { IntegrityBlock } from '@/components/portfolio/IntegrityBlock'
 import { RiskFlagsBlock } from '@/components/portfolio/RiskFlagsBlock'
+import { formatDateTime } from '@/lib/format'
+
+function PriceRefreshBar() {
+  const { isRefreshing, lastPriceRefresh, priceSourceMap, refreshPrices, holdings } =
+    usePortfolioStore()
+
+  const total = holdings.length
+  const liveCount = Object.values(priceSourceMap).filter(s => s === 'LIVE').length
+  const fallbackCount = Object.values(priceSourceMap).filter(s => s === 'FALLBACK').length
+  const hasRefreshed = lastPriceRefresh !== null
+  const hasLive = liveCount > 0
+  const dataMode = hasLive ? 'HYBRID' : 'MOCK'
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-1.5 border-b border-terminalBorder bg-terminalElevated shrink-0 overflow-x-auto">
+      <button
+        onClick={() => void refreshPrices()}
+        disabled={isRefreshing}
+        className="shrink-0 text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-2 py-0.5 hover:bg-terminalAmber/10 disabled:opacity-40 transition-colors"
+      >
+        {isRefreshing ? '↻ Refreshing…' : '↺ Refresh Prices'}
+      </button>
+
+      <span className="text-terminalBorder shrink-0">|</span>
+
+      {!hasRefreshed ? (
+        <span className="text-2xs font-mono text-terminalMuted">
+          Prices are mock — click Refresh to fetch live quotes
+        </span>
+      ) : (
+        <>
+          <span className="text-2xs font-mono text-terminalMuted shrink-0">
+            Last: <span className="text-terminalSubtext">{formatDateTime(lastPriceRefresh!)}</span>
+          </span>
+
+          <span className="text-terminalBorder shrink-0">|</span>
+
+          <span className="text-2xs font-mono text-terminalMuted shrink-0">
+            {liveCount > 0 && (
+              <span className="text-terminalGreen">{liveCount} LIVE</span>
+            )}
+            {liveCount > 0 && fallbackCount > 0 && <span> · </span>}
+            {fallbackCount > 0 && (
+              <span className="text-terminalAmber">{fallbackCount} FALLBACK</span>
+            )}
+            {liveCount === 0 && fallbackCount === 0 && (
+              <span className="text-terminalMuted">{total} MOCK</span>
+            )}
+            <span className="text-terminalMuted"> / {total}</span>
+          </span>
+
+          <span className="text-terminalBorder shrink-0">|</span>
+
+          <span className="text-2xs font-mono text-terminalMuted shrink-0">
+            DATA MODE:{' '}
+            <span className={hasLive ? 'text-terminalCyan' : 'text-terminalAmber'}>
+              {dataMode}
+            </span>
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
 
 export function Portfolio() {
   return (
@@ -14,12 +79,11 @@ export function Portfolio() {
       <PerformanceStrip />
       <RiskSummaryStrip />
       <SummaryStrip />
+      <PriceRefreshBar />
 
       <div className="flex-1 flex flex-col gap-2 p-2 overflow-y-auto">
-        {/* Holdings — full width anchor */}
         <HoldingsTable />
 
-        {/* Bottom row widgets */}
         <div className="grid grid-cols-3 gap-2">
           <TopContributors />
           <AllocationBlock />
