@@ -8,7 +8,7 @@ import { NAV_MODULES } from '@/lib/constants'
 const TICKER_RE = /^[A-Za-z][A-Za-z0-9.]{0,11}$/
 
 export function useCommandPalette() {
-  const { setCommandPaletteOpen, setActiveModule, navigateToSymbol, recentSymbols } =
+  const { setCommandPaletteOpen, setActiveModule, navigateToSymbol, recentSymbols, resetLocalState } =
     useWorkspaceStore()
   const [query, setQuery] = useState('')
 
@@ -48,8 +48,22 @@ export function useCommandPalette() {
       },
     ]
 
-    return [...navCommands, ...actionCommands]
-  }, [setActiveModule, setCommandPaletteOpen])
+    const systemCommands: CommandItem[] = [
+      {
+        id: 'action-reset-state',
+        label: 'Reset Local State',
+        category: 'action',
+        action: () => {
+          setCommandPaletteOpen(false)
+          // Small delay so the palette closes before reload
+          setTimeout(() => resetLocalState(), 80)
+        },
+        keywords: ['reset', 'clear', 'local', 'state', 'storage', 'localStorage'],
+      },
+    ]
+
+    return [...navCommands, ...actionCommands, ...systemCommands]
+  }, [setActiveModule, setCommandPaletteOpen, resetLocalState])
 
   const filtered = useMemo(() => {
     const trimmed = query.trim()
