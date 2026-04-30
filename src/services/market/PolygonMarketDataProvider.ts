@@ -200,21 +200,41 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
     let body: PolygonAggsResponse
     try { body = (await res.json()) as PolygonAggsResponse } catch {
-      return this.degradedHistory(symbol, range, 'Failed to parse response')
+      return this.degradedHistory(symbol, range, 'Failed to parse Polygon response body')
     }
 
-    if (body.status !== 'OK') {
-      return this.degradedHistory(symbol, range, body.error ?? body.message ?? 'Unexpected response')
+    // Dev-only: log response shape without printing the key
+    if (import.meta.env.DEV) {
+      const safeUrl = url.replace(this.apiKey ?? '', '[KEY]')
+      console.debug('[Polygon aggs]', symbol, range, {
+        url: safeUrl,
+        status: body.status,
+        resultsCount: body.resultsCount,
+      })
     }
 
+    // Polygon free tier returns "DELAYED" status — data is valid; treat it as success.
+    // Only treat the response as an error when the body explicitly signals one AND
+    // there are no results to use.
+    const STATUS_OK = body.status === 'OK' || body.status === 'DELAYED'
     const rawBars = body.results ?? []
 
-    if (rawBars.length === 0) {
-      // No bars returned (market closed / weekend) — degrade gracefully
-      return this.degradedHistory(symbol, range, 'No price data returned for requested range')
+    if (!STATUS_OK && rawBars.length === 0) {
+      // Actual API error — surface the message Polygon gave us
+      const reason = body.error ?? body.message
+        ?? `Polygon returned unexpected status: ${body.status ?? 'unknown'}`
+      return this.degradedHistory(symbol, range, reason)
     }
 
-    const bars: OHLCVBar[] = rawBars.map(b => ({
+    if (rawBars.length === 0) {
+      // Status was OK/DELAYED but no bars — market closed, holiday, or range too narrow
+      const note = range === '1D'
+        ? 'No intraday bars available — market may be closed or data not yet published'
+        : `No bars returned for ${range} range — try a wider range`
+      return this.degradedHistory(symbol, range, note)
+    }
+
+    let allBars: OHLCVBar[] = rawBars.map(b => ({
       timestamp: new Date(b.t).toISOString(),
       open: b.o,
       high: b.h,
@@ -223,13 +243,22 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       volume: b.v,
     }))
 
+    // For 1D, keep only the most recent trading day to avoid showing multi-day data
+    if (range === '1D' && allBars.length > 0) {
+      const lastDay = allBars[allBars.length - 1].timestamp.slice(0, 10)
+      allBars = allBars.filter(b => b.timestamp.slice(0, 10) === lastDay)
+    }
+
+    // Mark as stale when Polygon signals delayed data (free tier)
+    const isStale = body.status === 'DELAYED'
+
     const result: HistoricalPricesResult = {
       symbol,
       range,
-      bars,
+      bars: allBars,
       provider: 'Polygon.io',
       trustMode: 'TRUSTED',
-      isStale: false,
+      isStale,
     }
 
     this.historyCache.set(cacheKey, { result, fetchedAt: Date.now() })

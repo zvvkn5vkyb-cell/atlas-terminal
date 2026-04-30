@@ -77,7 +77,7 @@ function ChartBadge({ result }: { result: HistoricalPricesResult }) {
   if (result.trustMode === 'TRUSTED') {
     return (
       <span className="text-2xs font-mono text-terminalGreen border border-terminalGreen/40 px-1.5 py-0.5">
-        CHART: POLYGON
+        CHART: POLYGON{result.isStale ? ' (DELAYED)' : ''}
       </span>
     )
   }
