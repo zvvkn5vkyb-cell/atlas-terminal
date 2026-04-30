@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useWorkspaceStore } from '@/store/workspaceStore'
 import { useMarketStore } from '@/store/marketStore'
 import { SectionHeader } from '@/components/ui/SectionHeader'
@@ -6,6 +6,7 @@ import { MetricCard } from '@/components/ui/MetricCard'
 import { formatNumber, formatCompact, formatDateTime, pnlClass, formatPct } from '@/lib/format'
 import type { Quote } from '@/types/market'
 import type { OHLCVBar, HistoricalPricesResult, PriceRange } from '@/services/market/types'
+import { computeTechnicalIndicators } from '@/lib/analytics/technicalIndicators'
 
 const RANGES: PriceRange[] = ['1D', '1W', '1M', '3M', '1Y']
 const CANADIAN_RE = /\.(TO|TSX|V)$/i
@@ -203,6 +204,13 @@ export function SecurityDetail() {
   const chartResult = priceHistoryCache[`${activeSymbol}::${activeRange}`]
   const yearResult = priceHistoryCache[`${activeSymbol}::1Y`]
 
+  // Compute indicators from the longest available price history (1Y preferred).
+  // Uses yearResult regardless of trust mode so mock-data symbols still show indicators.
+  const indicators = useMemo(() => {
+    if (!yearResult || yearResult.bars.length < 15) return null
+    return computeTechnicalIndicators(yearResult.bars)
+  }, [yearResult])
+
   const handleSymbolCommit = (sym: string) => {
     setActiveSymbol(sym)
   }
@@ -318,13 +326,85 @@ export function SecurityDetail() {
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-terminalPanel border border-terminalBorder">
           <SectionHeader title="Technical Indicators" />
-          {['RSI (14)', 'MACD', 'SMA 20', 'SMA 50', 'SMA 200', 'ATR (14)'].map(label => (
-            <div key={label} className="flex items-center px-3 py-1.5 border-b border-terminalBorder/40 last:border-0">
-              <span className="text-xs font-mono text-terminalSubtext flex-1">{label}</span>
-              <span className="text-xs font-mono text-terminalMuted tabular-nums">—</span>
+          {!yearResult ? (
+            <div className="px-3 py-3 text-2xs font-mono text-terminalMuted">Loading…</div>
+          ) : !indicators ? (
+            <div className="px-3 py-3 text-2xs font-mono text-terminalMuted">
+              Insufficient data — need 15+ bars ({yearResult.bars.length} available)
             </div>
-          ))}
-          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">Requires price history</div>
+          ) : (
+            <>
+              {/* RSI(14) */}
+              <div className="flex items-center px-3 py-1.5 border-b border-terminalBorder/40">
+                <span className="text-xs font-mono text-terminalSubtext flex-1">RSI (14)</span>
+                {indicators.rsi14 !== null ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 h-1 bg-terminalBorder rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${indicators.rsi14 >= 70 ? 'bg-terminalRed' : indicators.rsi14 <= 30 ? 'bg-terminalGreen' : 'bg-terminalCyan'}`}
+                        style={{ width: `${Math.min(indicators.rsi14, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-mono tabular-nums ${indicators.rsi14 >= 70 ? 'text-terminalRed' : indicators.rsi14 <= 30 ? 'text-terminalGreen' : 'text-terminalCyan'}`}>
+                      {indicators.rsi14.toFixed(1)}
+                      <span className="text-terminalMuted text-2xs ml-1">
+                        {indicators.rsi14 >= 70 ? 'OB' : indicators.rsi14 <= 30 ? 'OS' : ''}
+                      </span>
+                    </span>
+                  </div>
+                ) : <span className="text-xs font-mono text-terminalMuted">—</span>}
+              </div>
+
+              {/* MACD */}
+              <div className="flex items-center px-3 py-1.5 border-b border-terminalBorder/40">
+                <span className="text-xs font-mono text-terminalSubtext flex-1">MACD (12,26,9)</span>
+                {indicators.macd !== null ? (
+                  <div className="text-right">
+                    <div className={`text-xs font-mono tabular-nums ${indicators.macd.histogram > 0 ? 'text-terminalGreen' : 'text-terminalRed'}`}>
+                      {indicators.macd.value > 0 ? '+' : ''}{indicators.macd.value.toFixed(3)}
+                    </div>
+                    <div className="text-2xs font-mono text-terminalMuted tabular-nums">
+                      sig {indicators.macd.signal.toFixed(3)}
+                    </div>
+                  </div>
+                ) : <span className="text-xs font-mono text-terminalMuted">—</span>}
+              </div>
+
+              {/* SMAs */}
+              {([
+                ['SMA 20', indicators.sma20],
+                ['SMA 50', indicators.sma50],
+                ['SMA 200', indicators.sma200],
+              ] as [string, number | null][]).map(([label, val]) => (
+                <div key={label} className="flex items-center px-3 py-1.5 border-b border-terminalBorder/40 last:border-0">
+                  <span className="text-xs font-mono text-terminalSubtext flex-1">{label}</span>
+                  {val !== null && quote ? (
+                    <span className={`text-xs font-mono tabular-nums ${quote.price > val ? 'text-terminalGreen' : quote.price < val ? 'text-terminalRed' : 'text-terminalSubtext'}`}>
+                      {formatNumber(val, 2)}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-mono text-terminalMuted">
+                      {val === null ? `< ${label === 'SMA 20' ? 20 : label === 'SMA 50' ? 50 : 200} bars` : '—'}
+                    </span>
+                  )}
+                </div>
+              ))}
+
+              {/* ATR(14) */}
+              <div className="flex items-center px-3 py-1.5">
+                <span className="text-xs font-mono text-terminalSubtext flex-1">ATR (14)</span>
+                {indicators.atr14 !== null ? (
+                  <span className="text-xs font-mono text-terminalSubtext tabular-nums">
+                    {formatNumber(indicators.atr14, 2)}
+                  </span>
+                ) : <span className="text-xs font-mono text-terminalMuted">—</span>}
+              </div>
+
+              <div className="px-3 py-1 border-t border-terminalBorder/40 text-2xs font-mono text-terminalMuted/60">
+                {indicators.barsAvailable} bars · {yearResult.trustMode === 'TRUSTED' ? 'Polygon.io' : 'mock data'}
+              </div>
+            </>
+          )}
         </div>
         <div className="bg-terminalPanel border border-terminalBorder">
           <SectionHeader title="Valuation" />
