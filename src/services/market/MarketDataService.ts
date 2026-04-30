@@ -1,6 +1,5 @@
 import type { IMarketDataProvider } from './MarketDataProvider'
-import { MockMarketDataProvider } from './MockMarketDataProvider'
-import { PolygonMarketDataProvider } from './PolygonMarketDataProvider'
+import { MarketDataRouter } from './MarketDataRouter'
 import type {
   IndexCard,
   FxRate,
@@ -16,8 +15,7 @@ import type { DataSource, MarketMovers } from './types'
 
 function buildProvider(): IMarketDataProvider {
   const requested = (import.meta.env.VITE_MARKET_PROVIDER as string | undefined)?.toLowerCase()
-  if (requested === 'polygon') return new PolygonMarketDataProvider()
-  return new MockMarketDataProvider()
+  return new MarketDataRouter(requested === 'polygon')
 }
 
 export class MarketDataService {

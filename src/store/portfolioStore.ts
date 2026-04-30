@@ -8,7 +8,6 @@ import type {
   PortfolioSummary,
   CashPosition,
 } from '@/types/portfolio'
-import type { TrustMode } from '@/types/market'
 import {
   MOCK_HOLDINGS,
   MOCK_NAV_SNAPSHOTS,
@@ -17,36 +16,19 @@ import {
 } from '@/lib/mockData'
 import { MarketDataService } from '@/services/market/MarketDataService'
 import { PORTFOLIO_STORAGE_KEY } from '@/store/workspaceStore'
+import {
+  type PriceSource,
+  computeSummary,
+  computeRefreshedState,
+  CANADIAN_RE,
+} from '@/store/portfolioRefresh'
 
-export type PriceSource = 'LIVE' | 'FALLBACK' | 'MOCK'
-
-export function computeSummary(holdings: Holding[], cash: CashPosition[]): PortfolioSummary {
-  const totalEquity = holdings.reduce((s, h) => s + h.currentValue, 0)
-  const totalCost = holdings.reduce((s, h) => s + h.costBasis * h.shares, 0)
-  const totalCash = cash.reduce((s, c) => s + c.usdEquivalent, 0)
-  const totalValue = totalEquity + totalCash
-  const totalUnrealizedPnL = holdings.reduce((s, h) => s + h.unrealizedPnL, 0)
-  const totalDayChange = holdings.reduce((s, h) => s + h.dayChange, 0)
-
-  return {
-    totalValue,
-    totalCost,
-    totalUnrealizedPnL,
-    totalUnrealizedPnLPct: totalCost > 0 ? totalUnrealizedPnL / totalCost : 0,
-    totalDayChange,
-    totalDayChangePct: totalValue > 0 ? totalDayChange / (totalValue - totalDayChange) : 0,
-    cashTotal: totalCash,
-    cashPct: totalValue > 0 ? totalCash / totalValue : 0,
-    equityTotal: totalEquity,
-    equityPct: totalValue > 0 ? totalEquity / totalValue : 0,
-    holdingCount: holdings.length,
-    currency: 'USD',
-    asOf: new Date().toISOString(),
-  }
-}
+// Re-export for UI components that import PriceSource or computeSummary from this module
+export type { PriceSource }
+export { computeSummary }
 
 const initialSourceMap: Record<string, PriceSource> = Object.fromEntries(
-  MOCK_HOLDINGS.map(h => [h.symbol, 'MOCK' as PriceSource])
+  MOCK_HOLDINGS.map(h => [h.symbol, CANADIAN_RE.test(h.symbol) ? 'CANADA' : 'MOCK'])
 )
 
 interface PortfolioState {
@@ -90,57 +72,19 @@ export const usePortfolioStore = create<PortfolioState>()(
           )
         )
 
-        const sourceMap: Record<string, PriceSource> = {}
-        const quoteById: Record<string, { symbol: string; quote: Awaited<ReturnType<typeof svc.getQuote>> }> = {}
+        const quoteResults = settled
+          .filter((r): r is PromiseFulfilledResult<{ holdingId: string; symbol: string; quote: Awaited<ReturnType<typeof svc.getQuote>> }> =>
+            r.status === 'fulfilled'
+          )
+          .map(r => r.value)
 
-        for (const result of settled) {
-          if (result.status !== 'fulfilled') continue
-          const { holdingId, symbol, quote } = result.value
-          quoteById[holdingId] = { symbol, quote }
-          const isLive = quote.trustMode === 'TRUSTED' && quote.exchange === 'Polygon.io'
-          sourceMap[symbol] = isLive ? 'LIVE' : quote.trustMode === 'DEGRADED' ? 'FALLBACK' : 'MOCK'
-        }
-
-        let updated = holdings.map((h): Holding => {
-          const entry = quoteById[h.id]
-          if (!entry) return h
-
-          const { quote } = entry
-          const src = sourceMap[h.symbol] ?? 'MOCK'
-
-          if (src === 'LIVE') {
-            const currentPrice = quote.price
-            const currentValue = currentPrice * h.shares
-            const costTotal = h.costBasis * h.shares
-            const unrealizedPnL = currentValue - costTotal
-            return {
-              ...h,
-              currentPrice,
-              currentValue,
-              unrealizedPnL,
-              unrealizedPnLPct: costTotal > 0 ? unrealizedPnL / costTotal : 0,
-              dayChange: quote.change * h.shares,
-              dayChangePct: quote.changePct,
-              trustMode: 'TRUSTED' as TrustMode,
-            }
-          }
-
-          if (src === 'FALLBACK') return { ...h, trustMode: 'DEGRADED' as TrustMode }
-          return h
-        })
-
-        const totalCash = cashPositions.reduce((s, c) => s + c.usdEquivalent, 0)
-        const totalEquity = updated.reduce((s, h) => s + h.currentValue, 0)
-        const totalValue = totalEquity + totalCash
-        updated = updated.map(h => ({
-          ...h,
-          weight: totalValue > 0 ? h.currentValue / totalValue : 0,
-        }))
+        const { holdings: updated, priceSourceMap: sourceMap, summary } =
+          computeRefreshedState(holdings, cashPositions, quoteResults)
 
         set({
           holdings: updated,
           priceSourceMap: sourceMap,
-          summary: computeSummary(updated, cashPositions),
+          summary,
           isRefreshing: false,
           lastPriceRefresh: new Date().toISOString(),
         })

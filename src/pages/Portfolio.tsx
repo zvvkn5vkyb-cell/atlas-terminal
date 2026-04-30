@@ -17,6 +17,7 @@ function PriceRefreshBar() {
   const total = holdings.length
   const liveCount = Object.values(priceSourceMap).filter(s => s === 'LIVE').length
   const fallbackCount = Object.values(priceSourceMap).filter(s => s === 'FALLBACK').length
+  const canadaCount = Object.values(priceSourceMap).filter(s => s === 'CANADA').length
   const hasRefreshed = lastPriceRefresh !== null
   const hasLive = liveCount > 0
   const dataMode = hasLive ? 'HYBRID' : 'MOCK'
@@ -49,11 +50,15 @@ function PriceRefreshBar() {
             {liveCount > 0 && (
               <span className="text-terminalGreen">{liveCount} LIVE</span>
             )}
-            {liveCount > 0 && fallbackCount > 0 && <span> · </span>}
+            {liveCount > 0 && (fallbackCount > 0 || canadaCount > 0) && <span> · </span>}
             {fallbackCount > 0 && (
               <span className="text-terminalAmber">{fallbackCount} FALLBACK</span>
             )}
-            {liveCount === 0 && fallbackCount === 0 && (
+            {fallbackCount > 0 && canadaCount > 0 && <span> · </span>}
+            {canadaCount > 0 && (
+              <span className="text-terminalAmber">{canadaCount} CANADA N/C</span>
+            )}
+            {liveCount === 0 && fallbackCount === 0 && canadaCount === 0 && (
               <span className="text-terminalMuted">{total} MOCK</span>
             )}
             <span className="text-terminalMuted"> / {total}</span>
@@ -67,6 +72,15 @@ function PriceRefreshBar() {
               {dataMode}
             </span>
           </span>
+
+          {canadaCount > 0 && (
+            <>
+              <span className="text-terminalBorder shrink-0">|</span>
+              <span className="text-2xs font-mono text-terminalMuted/60 shrink-0">
+                Canadian provider not configured — {canadaCount} holding{canadaCount !== 1 ? 's' : ''} using mock fallback
+              </span>
+            </>
+          )}
         </>
       )}
     </div>

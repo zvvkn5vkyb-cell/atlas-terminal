@@ -73,6 +73,28 @@ function PriceLineChart({ bars }: { bars: OHLCVBar[] }) {
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
+function ProviderBadge({ quote, symbol }: { quote: Quote; symbol: string }) {
+  if (quote.trustMode === 'TRUSTED' && quote.exchange === 'Polygon.io') {
+    return (
+      <span className="text-2xs font-mono text-terminalGreen border border-terminalGreen/40 px-1.5 py-0.5">
+        PROVIDER: POLYGON
+      </span>
+    )
+  }
+  if (CANADIAN_RE.test(symbol)) {
+    return (
+      <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1.5 py-0.5">
+        PROVIDER: CANADIAN PLACEHOLDER
+      </span>
+    )
+  }
+  return (
+    <span className="text-2xs font-mono text-terminalMuted border border-terminalMuted/30 px-1.5 py-0.5">
+      PROVIDER: MOCK FALLBACK
+    </span>
+  )
+}
+
 function ChartBadge({ result }: { result: HistoricalPricesResult }) {
   if (result.trustMode === 'TRUSTED') {
     return (
@@ -237,10 +259,11 @@ export function SecurityDetail() {
                 </div>
                 <div className="text-sm font-mono text-terminalSubtext mb-1.5">{quote.name}</div>
                 <div className="flex items-center gap-2 flex-wrap">
+                  <ProviderBadge quote={quote} symbol={activeSymbol} />
                   <QuoteBadge quote={quote} symbol={activeSymbol} />
                   {quote.trustMode === 'DEGRADED' && CANADIAN_RE.test(activeSymbol) && (
                     <span className="text-2xs font-mono text-terminalMuted/70">
-                      Polygon US equities endpoint does not support this symbol
+                      Canadian market provider not configured
                     </span>
                   )}
                   {quote.trustMode === 'DEGRADED' && !CANADIAN_RE.test(activeSymbol) && (

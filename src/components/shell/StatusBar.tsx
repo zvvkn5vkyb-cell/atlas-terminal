@@ -44,7 +44,11 @@ export function StatusBar() {
           </span>
           <span className="text-terminalBorder">|</span>
           <span className="text-2xs font-mono text-terminalMuted">
-            QUOTE: <span className="text-terminalGreen">POLYGON</span>
+            US EQUITIES: <span className="text-terminalGreen">POLYGON</span>
+          </span>
+          <span className="text-terminalBorder">|</span>
+          <span className="text-2xs font-mono text-terminalMuted">
+            CANADA: <span className="text-terminalAmber">NOT CONFIGURED</span>
           </span>
           <span className="text-terminalBorder">|</span>
           <span className="text-2xs font-mono text-terminalMuted">
@@ -56,9 +60,23 @@ export function StatusBar() {
           DATA MODE: <span className="text-terminalGreen">LIVE</span>
         </span>
       ) : (
-        <span className="text-2xs font-mono text-terminalMuted">
-          DATA MODE: <span className="text-terminalAmber">MOCK</span>
-        </span>
+        <>
+          <span className="text-2xs font-mono text-terminalMuted">
+            DATA MODE: <span className="text-terminalAmber">MOCK</span>
+          </span>
+          <span className="text-terminalBorder">|</span>
+          <span className="text-2xs font-mono text-terminalMuted">
+            US EQUITIES: <span className="text-terminalAmber">MOCK</span>
+          </span>
+          <span className="text-terminalBorder">|</span>
+          <span className="text-2xs font-mono text-terminalMuted">
+            CANADA: <span className="text-terminalAmber">NOT CONFIGURED</span>
+          </span>
+          <span className="text-terminalBorder">|</span>
+          <span className="text-2xs font-mono text-terminalMuted">
+            OTHER FEEDS: <span className="text-terminalAmber">MOCK</span>
+          </span>
+        </>
       )}
 
       <span className="text-terminalBorder">|</span>

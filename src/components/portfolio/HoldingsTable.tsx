@@ -15,6 +15,13 @@ function PriceSourceBadge({ source }: { source: PriceSource }) {
       </span>
     )
   }
+  if (source === 'CANADA') {
+    return (
+      <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1 py-0">
+        CANADA N/C
+      </span>
+    )
+  }
   if (source === 'FALLBACK') {
     return (
       <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1 py-0">
