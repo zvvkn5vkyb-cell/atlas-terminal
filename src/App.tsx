@@ -1,5 +1,10 @@
 import { WorkspaceShell } from '@/components/shell/WorkspaceShell'
+import { ErrorBoundary } from '@/components/system/ErrorBoundary'
 
 export default function App() {
-  return <WorkspaceShell />
+  return (
+    <ErrorBoundary>
+      <WorkspaceShell />
+    </ErrorBoundary>
+  )
 }
