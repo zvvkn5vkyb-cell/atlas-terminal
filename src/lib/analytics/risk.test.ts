@@ -214,9 +214,15 @@ describe('calculateBeta', () => {
     expect(r.trustMode).toBe('INSUFFICIENT_DATA')
   })
 
-  it('returns beta ~1.0 when portfolio and benchmark have equal VARYING returns', () => {
-    // Constant returns give variance=0 → beta undefined. Must use varying returns.
-    // When pr[i] == br[i] for all i: Cov(pr,br) = Var(br), so beta = 1.0 exactly.
+  it('returns beta exactly 1.0 when portfolio and benchmark use identical varying returns', () => {
+    // Key: must use VARYING (non-constant) returns so variance > 0.
+    // With pr[i] == br[i] for every period:
+    //   Cov(pr, br) = E[(r - mean_r)^2] = Var(r)
+    //   Var(br)     = E[(r - mean_r)^2] = Var(r)
+    //   beta = Var(r) / Var(r) = 1.0 exactly
+    //
+    // Rounding was the bug: Math.round() corrupted the return series so pr[i] ≠ br[i],
+    // destroying the 1.0 relationship. Use exact floating-point values.
     const dailyReturns = [
       0.012, -0.008, 0.015, -0.005, 0.020, -0.010, 0.007,
       0.003, -0.009, 0.018, 0.004, -0.006, 0.011, -0.013,
@@ -229,8 +235,8 @@ describe('calculateBeta', () => {
     let price = 400
     for (let i = 0; i <= dailyReturns.length; i++) {
       const date = `2024-01-${String(i + 1).padStart(2, '0')}`
-      navs.push(makeNav(date, Math.round(nav)))
-      bench.push(makeBench(date, Math.round(price * 100) / 100))
+      navs.push(makeNav(date, nav))    // exact — no rounding
+      bench.push(makeBench(date, price)) // exact — no rounding
       if (i < dailyReturns.length) {
         nav   *= (1 + dailyReturns[i])
         price *= (1 + dailyReturns[i])
@@ -239,7 +245,37 @@ describe('calculateBeta', () => {
     const r = calculateBeta(navs, bench)
     expect(r.trustMode).toBe('TRUSTED')
     expect(r.beta).not.toBeNull()
-    expect(r.beta!).toBeCloseTo(1.0, 0)  // within ±0.5 due to rounding
+    expect(r.beta!).toBeCloseTo(1.0, 5) // accurate to 5 decimal places with exact inputs
+  })
+
+  it('returns beta ~2.0 when portfolio returns are 2× benchmark returns', () => {
+    // With pr[i] = 2 * br[i]:
+    //   Cov(pr, br) = E[(2r - 2*mean_r)(r - mean_r)] = 2 * Var(r)
+    //   Var(br)     = Var(r)
+    //   beta = 2 * Var(r) / Var(r) = 2.0 exactly
+    const benchReturns = [
+      0.010, -0.006, 0.014, -0.004, 0.018, -0.009, 0.006,
+      0.003, -0.008, 0.016, 0.005, -0.007, 0.012, -0.011,
+      0.015, -0.006, 0.008, 0.002, -0.005, 0.013, -0.009,
+      0.007, 0.017, -0.007, 0.004,
+    ]
+    const navs: NAVSnapshot[] = []
+    const bench: BenchmarkPrice[] = []
+    let nav = 100_000
+    let price = 400
+    for (let i = 0; i <= benchReturns.length; i++) {
+      const date = `2024-01-${String(i + 1).padStart(2, '0')}`
+      navs.push(makeNav(date, nav))
+      bench.push(makeBench(date, price))
+      if (i < benchReturns.length) {
+        nav   *= (1 + benchReturns[i] * 2) // 2× leverage
+        price *= (1 + benchReturns[i])
+      }
+    }
+    const r = calculateBeta(navs, bench)
+    expect(r.trustMode).toBe('TRUSTED')
+    expect(r.beta).not.toBeNull()
+    expect(r.beta!).toBeCloseTo(2.0, 5)
   })
 
   it('returns INSUFFICIENT_DATA when benchmark dates do not overlap', () => {

@@ -66,12 +66,21 @@ describe('calculatePerformance — SI timeframe', () => {
 })
 
 describe('calculatePerformance — YTD timeframe (fixed at 2024-06-15)', () => {
-  it('uses 2024-01-01 as start, finds nearest nav on or before that date', () => {
+  it('uses first valuation ON OR AFTER Jan 1 as YTD start', () => {
     const r = calculatePerformance('YTD', NAV_SNAPSHOTS, BENCHMARK_PRICES)
     expect(r.trustMode).toBe('TRUSTED')
-    // YTD start is 2024-01-01; last snapshot ≤ '2024-01-01' is '2023-12-29' (nav=115_000)
-    // '2024-01-02' comes after '2024-01-01' so it is NOT selected
-    expect(r.startValue).toBe(115_000)
+    // YTD start is 2024-01-01 (Jan 1 is not a trading day).
+    // findNAVOnOrAfter selects the first snapshot ≥ '2024-01-01' = '2024-01-02' (nav=116_000).
+    // Prior methodology (onOrBefore) incorrectly used '2023-12-29' (115_000),
+    // including Dec 29 → Jan 1 drift in the YTD return.
+    expect(r.startValue).toBe(116_000)
+  })
+
+  it('YTD return is measured from first trading day of the year, not prior year close', () => {
+    const r = calculatePerformance('YTD', NAV_SNAPSHOTS, BENCHMARK_PRICES)
+    // start=116_000 (Jan 2), end=124_000 (Jun 14)
+    // return = (124_000 - 116_000) / 116_000
+    expect(r.portfolioReturn).toBeCloseTo(8_000 / 116_000)
   })
 })
 
@@ -87,15 +96,22 @@ describe('calculatePerformance — insufficient data', () => {
     expect(r.trustMode).toBe('INSUFFICIENT_DATA')
   })
 
-  it('returns INSUFFICIENT_DATA when no data exists before start date (1D)', () => {
-    // 1D looks for data from yesterday (2024-06-14); provide only future data
-    const futureNavs: NAVSnapshot[] = [
-      { date: '2025-01-01', nav: 200_000, totalValue: 200_000, cashValue: 0, equityValue: 200_000 },
-    ]
-    // Actually this has a nav after "today" (2024-06-15), so endNav will be found
-    // but startNav won't be found for 1D (yesterday = 2024-06-14)
-    // Let's test with empty benchmark instead
+  it('returns INSUFFICIENT_DATA when no benchmark prices exist', () => {
     const r = calculatePerformance('1D', NAV_SNAPSHOTS, [])
+    expect(r.trustMode).toBe('INSUFFICIENT_DATA')
+  })
+
+  it('returns INSUFFICIENT_DATA when all nav snapshots pre-date the period start', () => {
+    // 1D start = 2024-06-14; provide only snapshots from before that date.
+    // findNAVOnOrAfter finds nothing → INSUFFICIENT_DATA.
+    const oldNavs: NAVSnapshot[] = [
+      { date: '2024-06-10', nav: 100_000, totalValue: 100_000, cashValue: 0, equityValue: 100_000 },
+      { date: '2024-06-12', nav: 101_000, totalValue: 101_000, cashValue: 0, equityValue: 101_000 },
+    ]
+    const oldBench: BenchmarkPrice[] = [
+      { date: '2024-06-10', price: 400, symbol: 'SPY' },
+    ]
+    const r = calculatePerformance('1D', oldNavs, oldBench)
     expect(r.trustMode).toBe('INSUFFICIENT_DATA')
   })
 })

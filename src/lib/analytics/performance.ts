@@ -22,16 +22,20 @@ function timeframeStartDate(tf: Timeframe): string {
   }
 }
 
-function findNAVOnOrBefore(snapshots: NAVSnapshot[], date: string): NAVSnapshot | null {
-  const filtered = snapshots.filter(s => s.date <= date)
+// Start value: first available valuation ON OR AFTER the period start date.
+// Rationale: for YTD starting Jan 1, we want the first trading day of the year
+// (e.g. Jan 2), not the last valuation of the prior year (e.g. Dec 29).
+// Pre-condition: snapshots must be sorted ascending by date.
+function findNAVOnOrAfter(snapshots: NAVSnapshot[], date: string): NAVSnapshot | null {
+  const filtered = snapshots.filter(s => s.date >= date)
   if (!filtered.length) return null
-  return filtered[filtered.length - 1]
+  return filtered[0]
 }
 
-function findBenchmarkOnOrBefore(prices: BenchmarkPrice[], date: string): BenchmarkPrice | null {
-  const filtered = prices.filter(p => p.date <= date)
+function findBenchmarkOnOrAfter(prices: BenchmarkPrice[], date: string): BenchmarkPrice | null {
+  const filtered = prices.filter(p => p.date >= date)
   if (!filtered.length) return null
-  return filtered[filtered.length - 1]
+  return filtered[0]
 }
 
 export function calculatePerformance(
@@ -45,10 +49,12 @@ export function calculatePerformance(
   const startDateStr = timeframeStartDate(timeframe)
   const today = new Date().toISOString().slice(0, 10)
 
-  const startNav = findNAVOnOrBefore(sortedNavs, startDateStr)
-  const endNav = sortedNavs[sortedNavs.length - 1] ?? null
+  // Start: first valuation on or after the period start
+  const startNav   = findNAVOnOrAfter(sortedNavs,  startDateStr)
+  const startBench = findBenchmarkOnOrAfter(sortedBench, startDateStr)
 
-  const startBench = findBenchmarkOnOrBefore(sortedBench, startDateStr)
+  // End: latest available observation
+  const endNav   = sortedNavs[sortedNavs.length - 1]   ?? null
   const endBench = sortedBench[sortedBench.length - 1] ?? null
 
   if (!startNav || !endNav || !startBench || !endBench) {
