@@ -1,5 +1,7 @@
 import type { IMarketDataProvider } from './MarketDataProvider'
 import { MockMarketDataProvider } from './MockMarketDataProvider'
+import type { ICanadianAdapter } from './adapters/ICanadianAdapter'
+import { TwelveDataAdapter } from './adapters/TwelveDataAdapter'
 import type {
   IndexCard,
   FxRate,
@@ -13,15 +15,22 @@ import type {
 } from './types'
 import type { MarketMovers } from './types'
 
-const NOT_CONFIGURED = 'Canadian market provider not configured'
-const REALTIME_UNAVAILABLE = 'Real-time Canadian data requires configured provider'
-
 export class CanadianMarketDataProvider implements IMarketDataProvider {
   readonly name = 'CanadianMarketDataProvider'
   readonly dataSource = 'MOCK' as const
 
   private readonly fallback = new MockMarketDataProvider()
+  private readonly adapter: ICanadianAdapter
 
+  /**
+   * @param adapter - Swap to AlphaVantageAdapter, FinnhubAdapter, etc. for comparison.
+   *                  Defaults to TwelveDataAdapter.
+   */
+  constructor(adapter: ICanadianAdapter = new TwelveDataAdapter()) {
+    this.adapter = adapter
+  }
+
+  // Market overview always served from mock — no Canadian adapter covers indices/FX/commodities
   getIndices(): IndexCard[] { return this.fallback.getIndices() }
   getFxRates(): FxRate[] { return this.fallback.getFxRates() }
   getCommodities(): CommodityQuote[] { return this.fallback.getCommodities() }
@@ -29,34 +38,22 @@ export class CanadianMarketDataProvider implements IMarketDataProvider {
   getMovers(): MarketMovers { return this.fallback.getMovers() }
   getMarketBreadth(): MarketBreadth { return this.fallback.getMarketBreadth() }
 
-  async getQuote(symbol: string): Promise<Quote> {
-    const base = await this.fallback.getQuote(symbol)
-    return {
-      ...base,
-      symbol,
-      exchange: NOT_CONFIGURED,
-      trustMode: 'DEGRADED',
-    }
+  getQuote(symbol: string): Promise<Quote> {
+    return this.adapter.getQuote(symbol)
   }
 
-  async getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
-    const fb = await this.fallback.getHistoricalPrices(symbol, range)
-    return {
-      ...fb,
-      trustMode: 'DEGRADED',
-      fallbackReason: REALTIME_UNAVAILABLE,
-    }
+  getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
+    return this.adapter.getHistoricalPrices(symbol, range)
   }
 
   getProviderHealth(): ProviderHealth[] {
-    return [
-      {
-        providerId: 'canadian',
-        name: 'Canadian Market Data',
-        status: 'DEGRADED',
-        lastCheck: new Date().toISOString(),
-        errorMessage: NOT_CONFIGURED,
-      },
-    ]
+    const adapterHealth = this.adapter.getProviderHealth()
+    return [{
+      providerId: 'canadian',
+      name: `Canadian Market Data (${this.adapter.name})`,
+      status: adapterHealth.status,
+      lastCheck: adapterHealth.lastCheck,
+      errorMessage: adapterHealth.errorMessage,
+    }]
   }
 }

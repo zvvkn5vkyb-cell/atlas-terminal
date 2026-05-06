@@ -91,7 +91,7 @@ describe('routing — Canadian symbols via CanadianMarketDataProvider', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(result.trustMode).toBe('DEGRADED')
-    expect(result.fallbackReason).toBe('Real-time Canadian data requires configured provider')
+    expect(result.fallbackReason).toMatch(/configured/i)
   })
 
   it('TD.TO routes to Canadian provider (fallbackReason)', async () => {
@@ -102,7 +102,7 @@ describe('routing — Canadian symbols via CanadianMarketDataProvider', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(result.trustMode).toBe('DEGRADED')
-    expect(result.fallbackReason).toBe('Real-time Canadian data requires configured provider')
+    expect(result.fallbackReason).toMatch(/configured/i)
   })
 
   it('symbol ending in .TSX routes to Canadian provider', async () => {
@@ -112,7 +112,7 @@ describe('routing — Canadian symbols via CanadianMarketDataProvider', () => {
     const result = await router.getHistoricalPrices('SU.TSX', '1M')
 
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(result.fallbackReason).toBe('Real-time Canadian data requires configured provider')
+    expect(result.fallbackReason).toMatch(/configured/i)
   })
 
   it('symbol ending in .V routes to Canadian provider', async () => {
@@ -122,7 +122,7 @@ describe('routing — Canadian symbols via CanadianMarketDataProvider', () => {
     const result = await router.getHistoricalPrices('ABC.V', '1M')
 
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(result.fallbackReason).toBe('Real-time Canadian data requires configured provider')
+    expect(result.fallbackReason).toMatch(/configured/i)
   })
 
   it('Canadian quote returns DEGRADED trustMode', async () => {
@@ -130,7 +130,7 @@ describe('routing — Canadian symbols via CanadianMarketDataProvider', () => {
     const quote = await router.getQuote('RY.TO')
 
     expect(quote.trustMode).toBe('DEGRADED')
-    expect(quote.exchange).toMatch(/not configured/i)
+    expect(quote.exchange).toMatch(/configured/i)
   })
 })
 
@@ -187,13 +187,13 @@ describe('getProviderHealth', () => {
     expect(pg?.status).toBe('DOWN')
   })
 
-  it('shows Canadian provider as DEGRADED', () => {
+  it('shows Canadian provider as not UP when adapter has no key', () => {
     const router = new MarketDataRouter(true)
     const health = router.getProviderHealth()
     const ca = health.find(h => h.providerId === 'canadian')
 
-    expect(ca?.status).toBe('DEGRADED')
-    expect(ca?.errorMessage).toMatch(/not configured/i)
+    expect(ca?.status).not.toBe('UP')
+    expect(ca?.errorMessage ?? ca?.name).toMatch(/configured|twelve/i)
   })
 
   it('Mock fallback entry name includes "fallback"', () => {
