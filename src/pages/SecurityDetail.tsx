@@ -7,6 +7,7 @@ import { formatNumber, formatCompact, formatDateTime, pnlClass, formatPct } from
 import type { Quote } from '@/types/market'
 import type { OHLCVBar, HistoricalPricesResult, PriceRange } from '@/services/market/types'
 import { computeTechnicalIndicators } from '@/lib/analytics/technicalIndicators'
+import { useFundamentals } from '@/hooks/useFundamentals'
 
 const RANGES: PriceRange[] = ['1D', '1W', '1M', '3M', '1Y']
 const CANADIAN_RE = /\.(TO|TSX|V)$/i
@@ -222,6 +223,8 @@ export function SecurityDetail() {
     void loadPriceHistory(activeSymbol, activeRange)
   }, [activeRange, activeSymbol]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const fundamentals = useFundamentals(activeSymbol)
+
   const quote = quoteCache[activeSymbol]
   const chartResult = priceHistoryCache[`${activeSymbol}::${activeRange}`]
   const yearResult = priceHistoryCache[`${activeSymbol}::1Y`]
@@ -430,22 +433,96 @@ export function SecurityDetail() {
           )}
         </div>
         <div className="bg-terminalPanel border border-terminalBorder">
-          <SectionHeader title="Valuation" />
-          {['P/E Ratio', 'P/B Ratio', 'P/S Ratio', 'EV/EBITDA', 'Dividend Yield', 'EPS', 'Beta'].map(label => (
+          <SectionHeader
+            title="Valuation"
+            action={
+              fundamentals.configured
+                ? fundamentals.loading
+                  ? <span className="text-2xs font-mono text-terminalMuted">Loading…</span>
+                  : fundamentals.error
+                    ? <span className="text-2xs font-mono text-terminalRed">FMP error</span>
+                    : <span className="text-2xs font-mono text-terminalGreen border border-terminalGreen/40 px-1.5 py-0.5">FMP LIVE</span>
+                : <span className="text-2xs font-mono text-terminalMuted border border-terminalMuted/30 px-1.5 py-0.5">FMP NOT CONFIGURED</span>
+            }
+          />
+          {(
+            [
+              ['P/E Ratio',      fundamentals.metrics?.peRatio,                    (v: number) => v.toFixed(1)],
+              ['P/B Ratio',      fundamentals.metrics?.pbRatio,                    (v: number) => v.toFixed(2)],
+              ['P/S Ratio',      fundamentals.metrics?.priceToSalesRatio,          (v: number) => v.toFixed(2)],
+              ['EV/EBITDA',      fundamentals.metrics?.enterpriseValueOverEBITDA,  (v: number) => v.toFixed(1)],
+              ['Dividend Yield', fundamentals.metrics?.dividendYield,              (v: number) => (v * 100).toFixed(2) + '%'],
+              ['EPS',            fundamentals.metrics?.eps,                        (v: number) => '$' + v.toFixed(2)],
+              ['Beta',           fundamentals.metrics?.beta,                       (v: number) => v.toFixed(2)],
+            ] as [string, number | null | undefined, (v: number) => string][]
+          ).map(([label, val, fmt]) => (
             <div key={label} className="flex items-center px-3 py-1.5 border-b border-terminalBorder/40 last:border-0">
               <span className="text-xs font-mono text-terminalSubtext flex-1">{label}</span>
-              <span className="text-xs font-mono text-terminalMuted tabular-nums">—</span>
+              <span className="text-xs font-mono tabular-nums text-terminalText">
+                {val != null ? fmt(val) : <span className="text-terminalMuted">—</span>}
+              </span>
             </div>
           ))}
-          <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">Requires fundamentals feed</div>
+          {fundamentals.metrics?.date && (
+            <div className="px-3 py-1 border-t border-terminalBorder/40 text-2xs font-mono text-terminalMuted/60">
+              As of {fundamentals.metrics.date} · financialmodelingprep.com
+            </div>
+          )}
+          {!fundamentals.configured && (
+            <div className="px-3 py-1.5 text-2xs text-terminalMuted font-mono">
+              Set VITE_FMP_API_KEY to enable — free at financialmodelingprep.com
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-terminalPanel border border-terminalBorder">
-        <SectionHeader title={`News & Filings — ${activeSymbol}`} />
-        <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">
-          News and filings feed — requires live data provider
-        </div>
+        <SectionHeader
+          title={`News — ${activeSymbol}`}
+          action={
+            fundamentals.configured && !fundamentals.loading && fundamentals.news.length > 0
+              ? <span className="text-2xs font-mono text-terminalGreen border border-terminalGreen/40 px-1.5 py-0.5">FMP LIVE</span>
+              : null
+          }
+        />
+        {!fundamentals.configured ? (
+          <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">
+            Set VITE_FMP_API_KEY to enable news feed
+          </div>
+        ) : fundamentals.loading ? (
+          <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">Loading…</div>
+        ) : fundamentals.error ? (
+          <div className="px-3 py-4 text-center text-xs text-terminalRed font-mono">{fundamentals.error}</div>
+        ) : fundamentals.news.length === 0 ? (
+          <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">No recent news for {activeSymbol}</div>
+        ) : (
+          <div className="divide-y divide-terminalBorder/40">
+            {fundamentals.news.map((item, i) => (
+              <a
+                key={i}
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block px-3 py-2 hover:bg-terminalElevated transition-colors group"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono text-terminalText group-hover:text-terminalAmber leading-snug line-clamp-2 transition-colors">
+                      {item.title}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-2xs font-mono text-terminalMuted">{item.site}</span>
+                      <span className="text-2xs font-mono text-terminalMuted/50">·</span>
+                      <span className="text-2xs font-mono text-terminalMuted/70 tabular-nums">
+                        {item.publishedDate.slice(0, 10)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
