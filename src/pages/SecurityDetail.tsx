@@ -494,7 +494,9 @@ export function SecurityDetail() {
         ) : fundamentals.error ? (
           <div className="px-3 py-4 text-center text-xs text-terminalRed font-mono">{fundamentals.error}</div>
         ) : fundamentals.news.length === 0 ? (
-          <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">No recent news for {activeSymbol}</div>
+          <div className="px-3 py-4 text-center text-xs text-terminalMuted font-mono">
+            News feed requires an FMP paid plan — not available on free tier
+          </div>
         ) : (
           <div className="divide-y divide-terminalBorder/40">
             {fundamentals.news.map((item, i) => (
