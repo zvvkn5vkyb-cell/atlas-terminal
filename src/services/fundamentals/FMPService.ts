@@ -1,4 +1,4 @@
-const BASE = 'https://financialmodelingprep.com/api/v3'
+const BASE = 'https://financialmodelingprep.com/stable'
 
 export interface FMPKeyMetrics {
   peRatio: number | null
@@ -21,7 +21,9 @@ export interface FMPNewsItem {
 
 interface CacheEntry<T> { data: T; ts: number }
 const metricsCache = new Map<string, CacheEntry<FMPKeyMetrics>>()
-const METRICS_TTL = 60 * 60 * 1000  // 1 hour
+const newsCache = new Map<string, CacheEntry<FMPNewsItem[]>>()
+const METRICS_TTL = 60 * 60 * 1000
+const NEWS_TTL = 15 * 60 * 1000
 
 function apiKey(): string {
   return (import.meta.env.VITE_FMP_API_KEY as string | undefined) ?? ''
@@ -31,20 +33,24 @@ export function isFMPConfigured(): boolean {
   return apiKey().length > 0
 }
 
-// ─── Free-tier endpoints: /quote + /profile ───────────────────────────────────
-
-interface FMPQuote {
-  symbol?: string
-  pe?: number | null
-  eps?: number | null
-  marketCap?: number | null
-  price?: number | null
-}
-
 interface FMPProfile {
   beta?: number | null
-  lastDiv?: number | null  // annual dividend per share
+  lastDividend?: number | null
   price?: number | null
+  eps?: number | null
+}
+
+interface FMPRatiosTTM {
+  priceToEarningsRatioTTM?: number | null
+  priceToBookRatioTTM?: number | null
+  priceToSalesRatioTTM?: number | null
+  dividendYieldTTM?: number | null
+}
+
+interface FMPKeyMetricsRow {
+  evToEBITDA?: number | null
+  earningsYield?: number | null
+  date?: string
 }
 
 export async function fetchKeyMetrics(symbol: string): Promise<FMPKeyMetrics> {
@@ -52,40 +58,70 @@ export async function fetchKeyMetrics(symbol: string): Promise<FMPKeyMetrics> {
   const cached = metricsCache.get(key)
   if (cached && Date.now() - cached.ts < METRICS_TTL) return cached.data
 
-  const [quoteRes, profileRes] = await Promise.all([
-    fetch(`${BASE}/quote/${key}?apikey=${apiKey()}`),
-    fetch(`${BASE}/profile/${key}?apikey=${apiKey()}`),
+  const k = apiKey()
+  const [profileRes, ratiosRes, kmRes] = await Promise.all([
+    fetch(`${BASE}/profile?symbol=${key}&apikey=${k}`),
+    fetch(`${BASE}/ratios-ttm?symbol=${key}&apikey=${k}`),
+    fetch(`${BASE}/key-metrics?symbol=${key}&period=annual&limit=1&apikey=${k}`),
   ])
 
-  if (!quoteRes.ok) throw new Error(`FMP quote ${quoteRes.status}`)
   if (!profileRes.ok) throw new Error(`FMP profile ${profileRes.status}`)
+  if (!ratiosRes.ok) throw new Error(`FMP ratios ${ratiosRes.status}`)
+  if (!kmRes.ok) throw new Error(`FMP key-metrics ${kmRes.status}`)
 
-  const quoteJson = await quoteRes.json() as unknown[]
   const profileJson = await profileRes.json() as unknown[]
+  const ratiosJson = await ratiosRes.json() as unknown[]
+  const kmJson = await kmRes.json() as unknown[]
 
-  const q = (Array.isArray(quoteJson) && quoteJson.length > 0 ? quoteJson[0] : {}) as FMPQuote
   const p = (Array.isArray(profileJson) && profileJson.length > 0 ? profileJson[0] : {}) as FMPProfile
+  const r = (Array.isArray(ratiosJson) && ratiosJson.length > 0 ? ratiosJson[0] : {}) as FMPRatiosTTM
+  const km = (Array.isArray(kmJson) && kmJson.length > 0 ? kmJson[0] : {}) as FMPKeyMetricsRow
 
-  const price = q.price ?? p.price ?? null
-  const lastDiv = p.lastDiv ?? null
-  const dividendYield = (price && lastDiv && price > 0) ? lastDiv / price : null
+  const price = p.price ?? null
+  const lastDiv = p.lastDividend ?? null
+  const dividendYield = r.dividendYieldTTM != null
+    ? r.dividendYieldTTM
+    : (price && lastDiv && price > 0 ? lastDiv / price : null)
+
+  // Derive EPS from earnings yield × price if not directly available
+  const ey = km.earningsYield ?? null
+  const eps = p.eps ?? (ey && price ? ey * price : null)
 
   const data: FMPKeyMetrics = {
-    peRatio: q.pe ?? null,
-    pbRatio: null,           // requires paid plan
-    priceToSalesRatio: null, // requires paid plan
-    enterpriseValueOverEBITDA: null, // requires paid plan
+    peRatio: r.priceToEarningsRatioTTM ?? null,
+    pbRatio: r.priceToBookRatioTTM ?? null,
+    priceToSalesRatio: r.priceToSalesRatioTTM ?? null,
+    enterpriseValueOverEBITDA: km.evToEBITDA ?? null,
     dividendYield,
-    eps: q.eps ?? null,
+    eps,
     beta: p.beta ?? null,
-    date: new Date().toISOString().slice(0, 10),
+    date: km.date ?? new Date().toISOString().slice(0, 10),
   }
 
   metricsCache.set(key, { data, ts: Date.now() })
   return data
 }
 
-// News is not available on the free FMP plan — return empty so the UI degrades cleanly.
-export async function fetchNews(_symbol: string): Promise<FMPNewsItem[]> {
-  return []
+export async function fetchNews(symbol: string): Promise<FMPNewsItem[]> {
+  const key = symbol.toUpperCase()
+  const cached = newsCache.get(key)
+  if (cached && Date.now() - cached.ts < NEWS_TTL) return cached.data
+
+  const res = await fetch(`${BASE}/stock-news?symbol=${key}&limit=10&apikey=${apiKey()}`)
+  if (!res.ok) throw new Error(`FMP news ${res.status}`)
+
+  const json = await res.json() as unknown[]
+  const data: FMPNewsItem[] = (Array.isArray(json) ? json : []).map(item => {
+    const i = item as Record<string, string>
+    return {
+      title: i.title ?? '',
+      publishedDate: i.publishedDate ?? i.date ?? '',
+      site: i.site ?? i.source ?? '',
+      url: i.url ?? '',
+      text: i.text ?? i.content ?? '',
+    }
+  })
+
+  newsCache.set(key, { data, ts: Date.now() })
+  return data
 }
