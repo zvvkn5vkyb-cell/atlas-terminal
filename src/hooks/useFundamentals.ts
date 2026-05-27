@@ -29,9 +29,10 @@ export function useFundamentals(symbol: string): FundamentalsState {
     let cancelled = false
     setState(s => ({ ...s, loading: true, error: null, metrics: null, news: [] }))
 
-    Promise.all([fetchKeyMetrics(symbol), fetchNews(symbol)])
-      .then(([metrics, news]) => {
-        if (!cancelled) setState({ metrics, news, loading: false, error: null, configured: true })
+    // Run independently — news failure must not kill valuation metrics
+    fetchKeyMetrics(symbol)
+      .then(metrics => {
+        if (!cancelled) setState(s => ({ ...s, metrics, loading: false, error: null }))
       })
       .catch((err: unknown) => {
         if (!cancelled) setState(s => ({
@@ -39,6 +40,14 @@ export function useFundamentals(symbol: string): FundamentalsState {
           loading: false,
           error: err instanceof Error ? err.message : 'FMP fetch failed',
         }))
+      })
+
+    fetchNews(symbol)
+      .then(news => {
+        if (!cancelled) setState(s => ({ ...s, news }))
+      })
+      .catch(() => {
+        // News errors are non-fatal — show empty list silently
       })
 
     return () => { cancelled = true }

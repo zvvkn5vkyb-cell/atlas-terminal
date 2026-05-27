@@ -102,26 +102,7 @@ export async function fetchKeyMetrics(symbol: string): Promise<FMPKeyMetrics> {
   return data
 }
 
-export async function fetchNews(symbol: string): Promise<FMPNewsItem[]> {
-  const key = symbol.toUpperCase()
-  const cached = newsCache.get(key)
-  if (cached && Date.now() - cached.ts < NEWS_TTL) return cached.data
-
-  const res = await fetch(`${BASE}/stock-news?symbol=${key}&limit=10&apikey=${apiKey()}`)
-  if (!res.ok) throw new Error(`FMP news ${res.status}`)
-
-  const json = await res.json() as unknown[]
-  const data: FMPNewsItem[] = (Array.isArray(json) ? json : []).map(item => {
-    const i = item as Record<string, string>
-    return {
-      title: i.title ?? '',
-      publishedDate: i.publishedDate ?? i.date ?? '',
-      site: i.site ?? i.source ?? '',
-      url: i.url ?? '',
-      text: i.text ?? i.content ?? '',
-    }
-  })
-
-  newsCache.set(key, { data, ts: Date.now() })
-  return data
+// Symbol-specific news requires a paid FMP plan — return empty gracefully.
+export async function fetchNews(_symbol: string): Promise<FMPNewsItem[]> {
+  return []
 }
