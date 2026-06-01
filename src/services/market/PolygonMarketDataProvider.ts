@@ -14,6 +14,82 @@ import type {
 } from './types'
 import type { MarketMovers } from './types'
 
+// ─── Polygon Indices ──────────────────────────────────────────────────────────
+
+interface PolygonIndexSession {
+  change?: number
+  change_percent?: number
+  close?: number
+  previous_close?: number
+}
+
+interface PolygonIndexResult {
+  ticker: string
+  name?: string
+  value?: number
+  session?: PolygonIndexSession
+}
+
+interface PolygonIndicesResponse {
+  status: string
+  results?: PolygonIndexResult[]
+  error?: string
+}
+
+const POLYGON_INDEX_MAP: Record<string, { display: string; name: string; region: string }> = {
+  'I:SPX': { display: 'SPX',  name: 'S&P 500',       region: 'US' },
+  'I:NDX': { display: 'NDX',  name: 'NASDAQ 100',     region: 'US' },
+  'I:DJI': { display: 'DJIA', name: 'Dow Jones',      region: 'US' },
+  'I:RUT': { display: 'RTY',  name: 'Russell 2000',   region: 'US' },
+}
+
+const INDICES_CACHE_TTL_MS = 60_000
+
+interface CachedIndices { cards: IndexCard[]; fetchedAt: number }
+let indicesCache: CachedIndices | null = null
+
+export async function fetchPolygonIndices(): Promise<IndexCard[]> {
+  const apiKey = import.meta.env.VITE_POLYGON_API_KEY as string | undefined
+  if (!apiKey) return []
+
+  if (indicesCache && Date.now() - indicesCache.fetchedAt < INDICES_CACHE_TTL_MS) {
+    return indicesCache.cards
+  }
+
+  const tickers = Object.keys(POLYGON_INDEX_MAP).join(',')
+  const url = `${POLYGON_BASE}/v3/snapshot/indices?ticker.any_of=${encodeURIComponent(tickers)}&apiKey=${apiKey}`
+
+  let res: Response
+  try { res = await fetch(url) } catch { return [] }
+  if (!res.ok) return []
+
+  let body: PolygonIndicesResponse
+  try { body = await res.json() as PolygonIndicesResponse } catch { return [] }
+
+  if (!body.results?.length) return []
+
+  const cards: IndexCard[] = body.results
+    .map((r): IndexCard | null => {
+      const meta = POLYGON_INDEX_MAP[r.ticker]
+      if (!meta) return null
+      const price = r.value ?? r.session?.close ?? r.session?.previous_close
+      if (price == null) return null
+      return {
+        symbol: meta.display,
+        name: meta.name,
+        value: price,
+        change: r.session?.change ?? 0,
+        changePct: r.session?.change_percent ?? 0,
+        region: meta.region,
+        trustMode: 'TRUSTED',
+      }
+    })
+    .filter((c): c is IndexCard => c !== null)
+
+  indicesCache = { cards, fetchedAt: Date.now() }
+  return cards
+}
+
 // ─── Polygon response shapes ──────────────────────────────────────────────────
 
 interface PolygonSnapshotResponse {

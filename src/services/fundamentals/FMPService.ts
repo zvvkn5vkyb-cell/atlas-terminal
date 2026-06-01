@@ -1,3 +1,5 @@
+import type { IndexCard } from '@/types/market'
+
 const BASE = 'https://financialmodelingprep.com/stable'
 
 export interface FMPKeyMetrics {
@@ -105,4 +107,60 @@ export async function fetchKeyMetrics(symbol: string): Promise<FMPKeyMetrics> {
 // Symbol-specific news requires a paid FMP plan — return empty gracefully.
 export async function fetchNews(_symbol: string): Promise<FMPNewsItem[]> {
   return []
+}
+
+// ─── Live Index Quotes ────────────────────────────────────────────────────────
+
+const INDEX_META = [
+  { fmp: '^GSPC',   display: 'SPX',  name: 'S&P 500',            region: 'US' },
+  { fmp: '^NDX',    display: 'NDX',  name: 'NASDAQ 100',          region: 'US' },
+  { fmp: '^DJI',    display: 'DJIA', name: 'Dow Jones',           region: 'US' },
+  { fmp: '^RUT',    display: 'RTY',  name: 'Russell 2000',        region: 'US' },
+  { fmp: '^GSPTSE', display: 'TSX',  name: 'S&P/TSX Composite',   region: 'CA' },
+  { fmp: '^FTSE',   display: 'FTSE', name: 'FTSE 100',            region: 'UK' },
+  { fmp: '^GDAXI',  display: 'DAX',  name: 'DAX 40',              region: 'DE' },
+  { fmp: '^N225',   display: 'N225', name: 'Nikkei 225',          region: 'JP' },
+] as const
+
+interface FMPQuoteItem {
+  symbol: string
+  price?: number
+  change?: number
+  changesPercentage?: number
+}
+
+const INDEX_TTL = 10 * 60 * 1000
+let indicesCache: { data: IndexCard[]; ts: number } | null = null
+
+export async function fetchLiveIndices(): Promise<IndexCard[]> {
+  if (indicesCache && Date.now() - indicesCache.ts < INDEX_TTL) return indicesCache.data
+
+  const k = apiKey()
+  if (!k) return []
+
+  const symbols = INDEX_META.map(m => m.fmp).join(',')
+  const res = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(symbols)}&apikey=${k}`)
+  if (!res.ok) throw new Error(`FMP quote ${res.status}`)
+
+  const json = await res.json() as FMPQuoteItem[]
+  const byFmp = new Map(json.map(q => [q.symbol, q]))
+
+  const cards: IndexCard[] = INDEX_META
+    .map((meta): IndexCard | null => {
+      const q = byFmp.get(meta.fmp)
+      if (!q || q.price == null) return null
+      return {
+        symbol: meta.display,
+        name: meta.name,
+        value: q.price,
+        change: q.change ?? 0,
+        changePct: q.changesPercentage ?? 0,
+        region: meta.region,
+        trustMode: 'TRUSTED',
+      }
+    })
+    .filter((c): c is IndexCard => c !== null)
+
+  indicesCache = { data: cards, ts: Date.now() }
+  return cards
 }

@@ -1,22 +1,32 @@
 import { useMockMarketData } from '@/hooks/useMockMarketData'
+import { useLiveIndices } from '@/hooks/useLiveIndices'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { DegradedDataBadge } from '@/components/ui/DegradedDataBadge'
 import { formatNumber, formatPct, pnlClass } from '@/lib/format'
 
+const INDEX_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  live:    { label: 'INDICES: POLYGON LIVE',    cls: 'text-terminalGreen border-terminalGreen/40' },
+  loading: { label: 'INDICES: LOADING…',        cls: 'text-terminalAmber border-terminalAmber/40' },
+  mock:    { label: 'INDICES: MOCK FALLBACK',   cls: 'text-terminalMuted  border-terminalMuted/30' },
+}
+
 export function MarketOverview() {
-  const { indices, fxRates, commodities, rates, moversUp, moversDown, breadth } = useMockMarketData()
+  const { fxRates, commodities, rates, moversUp, moversDown, breadth } = useMockMarketData()
+  const { indices, status } = useLiveIndices()
+  const indexBadge = INDEX_STATUS_LABEL[status]
 
   return (
     <div className="p-2 flex flex-col gap-2">
-      {/* Data provenance disclosure */}
-      <div className="flex items-center gap-2 px-3 py-1 bg-terminalPanel border border-terminalAmber/20 text-2xs font-mono">
-        <span className="text-terminalAmber">MOCK DATA</span>
-        <span className="text-terminalMuted">— indices, FX, rates, commodities, movers, and breadth are simulated. Live provider not yet connected for these feeds.</span>
-      </div>
-
       {/* Index Cards */}
       <div className="bg-terminalPanel border border-terminalBorder">
-        <SectionHeader title="Global Indices" />
+        <SectionHeader
+          title="Global Indices"
+          action={
+            <span className={`text-2xs font-mono border px-1.5 py-0.5 ${indexBadge.cls}`}>
+              {indexBadge.label}
+            </span>
+          }
+        />
         <div className="grid grid-cols-4">
           {indices.map(idx => (
             <div key={idx.symbol} className="px-3 py-2 border-r border-b border-terminalBorder [&:nth-child(4n)]:border-r-0 [&:nth-child(n+5)]:border-b-0">
