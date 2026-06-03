@@ -272,3 +272,121 @@ describe('getHistoricalPrices — fallback bars are always provided', () => {
     expect(result.bars.length).toBeGreaterThan(0)
   })
 })
+
+// ─── Provenance classification ───────────────────────────────────────────────
+
+describe('provenance — success paths', () => {
+  it('quote success → LIVE provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({
+      status: 'OK',
+      ticker: {
+        ticker: 'AAPL',
+        todaysChange: 1,
+        todaysChangePerc: 0.5,
+        updated: Date.now() * 1_000_000, // ns; maps to ~now → fresh
+        day: { o: 184, h: 186, l: 183, c: 185, v: 1_000 },
+        prevDay: { c: 184 },
+        lastTrade: { p: 185 },
+      },
+    }))
+    const provider = new PolygonMarketDataProvider()
+    const quote = await provider.getQuote('AAPL')
+
+    expect(quote.provenance?.source).toBe('POLYGON')
+    expect(quote.provenance?.status).toBe('LIVE')
+  })
+
+  it('history OK → LIVE provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({ status: 'OK', resultsCount: 3, results: mockBars(3) }))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('LIVE')
+  })
+
+  it('history DELAYED → DELAYED provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({ status: 'DELAYED', resultsCount: 3, results: mockBars(3) }))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('DELAYED')
+  })
+})
+
+describe('provenance — fallback vs error classification', () => {
+  it('quote missing API key → FALLBACK provenance', async () => {
+    vi.stubEnv('VITE_POLYGON_API_KEY', '')
+    vi.stubGlobal('fetch', vi.fn())
+    const provider = new PolygonMarketDataProvider()
+    const quote = await provider.getQuote('AAPL')
+
+    expect(quote.provenance?.status).toBe('FALLBACK')
+    expect(quote.provenance?.source).toBe('POLYGON')
+  })
+
+  it('quote Canadian symbol → FALLBACK provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const provider = new PolygonMarketDataProvider()
+    const quote = await provider.getQuote('RY.TO')
+
+    expect(quote.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('quote network failure → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Failed to fetch')))
+    const provider = new PolygonMarketDataProvider()
+    const quote = await provider.getQuote('AAPL')
+
+    expect(quote.provenance?.status).toBe('ERROR')
+    expect(quote.provenance?.error).toMatch(/fetch/i)
+  })
+
+  it('history Canadian symbol → FALLBACK provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('RY.TO', '1M')
+
+    expect(result.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('history missing API key → FALLBACK provenance', async () => {
+    vi.stubEnv('VITE_POLYGON_API_KEY', '')
+    vi.stubGlobal('fetch', vi.fn())
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('history 404 (symbol not found) → FALLBACK provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchStatus(404))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('XXXX', '1M')
+
+    expect(result.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('history OK with no bars → FALLBACK provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({ status: 'OK', resultsCount: 0, results: [] }))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('history 403 (key rejected) → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchStatus(403))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('ERROR')
+  })
+
+  it('history network failure → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Failed to fetch')))
+    const provider = new PolygonMarketDataProvider()
+    const result = await provider.getHistoricalPrices('AAPL', '1M')
+
+    expect(result.provenance?.status).toBe('ERROR')
+  })
+})

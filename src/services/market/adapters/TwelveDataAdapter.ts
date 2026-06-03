@@ -3,6 +3,11 @@ import { MockMarketDataProvider } from '../MockMarketDataProvider'
 import { parseCanadianSymbol } from '../canadianSymbol'
 import type { Quote, ProviderHealth } from '../types'
 import type { HistoricalPricesResult, PriceRange, OHLCVBar } from '../types'
+import {
+  createLiveProvenance,
+  createErrorProvenance,
+  createFallbackProvenance,
+} from '@/lib/provenance/provenance'
 
 // ─── Twelve Data response shapes ─────────────────────────────────────────────
 
@@ -120,6 +125,10 @@ export class TwelveDataAdapter implements ICanadianAdapter {
       return this.recordQuoteError(symbol, body.message ?? 'Unexpected response shape')
     }
 
+    const lastUpdated = body.datetime
+      ? new Date(body.datetime).toISOString()
+      : new Date().toISOString()
+
     const quote: Quote = {
       symbol,
       name: body.name ?? symbol,
@@ -130,10 +139,15 @@ export class TwelveDataAdapter implements ICanadianAdapter {
       marketCap: undefined,
       currency: body.currency ?? 'CAD',
       exchange: body.exchange ?? parsed.exchange,
-      lastUpdated: body.datetime
-        ? new Date(body.datetime).toISOString()
-        : new Date().toISOString(),
+      lastUpdated,
       trustMode: 'TRUSTED',
+      // asOf drives staleness: Canadian EOD data older than the threshold is
+      // truthfully classified STALE rather than LIVE.
+      provenance: createLiveProvenance({
+        source: 'TWELVE_DATA',
+        provider: 'Twelve Data',
+        asOf: lastUpdated,
+      }),
     }
 
     this.quoteCache.set(symbol, { quote, fetchedAt: Date.now() })
@@ -166,21 +180,21 @@ export class TwelveDataAdapter implements ICanadianAdapter {
 
     let res: Response
     try { res = await fetch(url) } catch (err) {
-      return this.degradedHistory(symbol, range, err instanceof Error ? err.message : 'Network error')
+      return this.degradedHistory(symbol, range, err instanceof Error ? err.message : 'Network error', true)
     }
 
-    if (res.status === 429) return this.degradedHistory(symbol, range, 'Rate limit exceeded (429)')
+    if (res.status === 429) return this.degradedHistory(symbol, range, 'Rate limit exceeded (429)', true)
     if (res.status === 401 || res.status === 403)
-      return this.degradedHistory(symbol, range, `API key rejected (${res.status})`)
-    if (!res.ok) return this.degradedHistory(symbol, range, `HTTP ${res.status}`)
+      return this.degradedHistory(symbol, range, `API key rejected (${res.status})`, true)
+    if (!res.ok) return this.degradedHistory(symbol, range, `HTTP ${res.status}`, true)
 
     let body: TwelveDataTimeSeriesResponse
     try { body = (await res.json()) as TwelveDataTimeSeriesResponse } catch {
-      return this.degradedHistory(symbol, range, 'Failed to parse response')
+      return this.degradedHistory(symbol, range, 'Failed to parse response', true)
     }
 
     if (body.status === 'error' || !body.values?.length) {
-      return this.degradedHistory(symbol, range, body.message ?? 'No data returned')
+      return this.degradedHistory(symbol, range, body.message ?? 'No data returned', true)
     }
 
     const bars: OHLCVBar[] = body.values.map(b => ({
@@ -199,6 +213,7 @@ export class TwelveDataAdapter implements ICanadianAdapter {
       provider: 'Twelve Data',
       trustMode: 'TRUSTED',
       isStale: false,
+      provenance: createLiveProvenance({ source: 'TWELVE_DATA', provider: 'Twelve Data' }),
     }
 
     this.historyCache.set(cacheKey, { result, fetchedAt: Date.now() })
@@ -222,22 +237,40 @@ export class TwelveDataAdapter implements ICanadianAdapter {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private async degradedQuote(symbol: string, reason: string): Promise<Quote> {
+  // `errored` is true only when a live fetch actually failed (network/HTTP/parse),
+  // yielding ERROR provenance. Not-configured / unsupported-symbol cases are
+  // FALLBACK (data substituted because no real Canadian source is available).
+  private async degradedQuote(symbol: string, reason: string, errored = false): Promise<Quote> {
     const base = await this.fallback.getQuote(symbol)
-    return { ...base, symbol, trustMode: 'DEGRADED', exchange: reason }
+    return {
+      ...base,
+      symbol,
+      trustMode: 'DEGRADED',
+      exchange: reason,
+      provenance: errored
+        ? createErrorProvenance({ source: 'TWELVE_DATA', provider: 'Twelve Data', error: reason })
+        : createFallbackProvenance({
+            source: 'CANADIAN_PLACEHOLDER',
+            provider: 'Twelve Data (not configured)',
+            fallbackReason: reason,
+          }),
+    }
   }
 
   private async recordQuoteError(symbol: string, reason: string): Promise<Quote> {
     this.lastStatus = 'DEGRADED'
     this.lastError = reason
     this.lastCheck = new Date().toISOString()
-    return this.degradedQuote(symbol, reason)
+    return this.degradedQuote(symbol, reason, true)
   }
 
+  // `errored` distinguishes a failed live fetch (ERROR) from a not-configured /
+  // unsupported-symbol fallback (FALLBACK), mirroring degradedQuote.
   private async degradedHistory(
     symbol: string,
     range: PriceRange,
     reason: string,
+    errored = false,
   ): Promise<HistoricalPricesResult> {
     const fb = await this.fallback.getHistoricalPrices(symbol, range)
     return {
@@ -247,6 +280,18 @@ export class TwelveDataAdapter implements ICanadianAdapter {
       provider: 'Twelve Data (mock fallback)',
       trustMode: 'DEGRADED',
       fallbackReason: reason,
+      provenance: errored
+        ? createErrorProvenance({
+            source: 'TWELVE_DATA',
+            provider: 'Twelve Data',
+            error: reason,
+            fallbackReason: 'Served mock bars after Twelve Data fetch failed',
+          })
+        : createFallbackProvenance({
+            source: 'CANADIAN_PLACEHOLDER',
+            provider: 'Twelve Data (not configured)',
+            fallbackReason: reason,
+          }),
     }
   }
 }

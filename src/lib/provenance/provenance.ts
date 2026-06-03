@@ -186,6 +186,23 @@ export function createMockProvenance(params: MockProvenanceParams = {}): DataPro
   return { source: 'MOCK', status: 'MOCK', fetchedAt, asOf, provider }
 }
 
+export interface FallbackProvenanceParams {
+  source?: MarketDataSource
+  provider?: string
+  fetchedAt?: string
+  fallbackReason?: string
+}
+
+/**
+ * Build provenance for substituted/degraded data served because a real source
+ * is unavailable or not configured (e.g. the Canadian placeholder). Distinct
+ * from MOCK (no attempt) and ERROR (an attempt that threw): status is FALLBACK.
+ */
+export function createFallbackProvenance(params: FallbackProvenanceParams = {}): DataProvenance {
+  const { source = 'UNKNOWN', provider, fetchedAt = new Date().toISOString(), fallbackReason } = params
+  return { source, status: 'FALLBACK', fetchedAt, provider, fallbackReason }
+}
+
 export interface ErrorProvenanceParams {
   error: string
   source?: MarketDataSource

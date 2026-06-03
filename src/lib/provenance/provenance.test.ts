@@ -6,6 +6,7 @@ import {
   isDataUsableForAnalytics,
   createLiveProvenance,
   createMockProvenance,
+  createFallbackProvenance,
   createErrorProvenance,
   DEFAULT_STALENESS_THRESHOLD_MS,
 } from './provenance'
@@ -201,5 +202,29 @@ describe('createErrorProvenance', () => {
 
   it('defaults the source to UNKNOWN', () => {
     expect(createErrorProvenance({ error: 'boom' }).source).toBe('UNKNOWN')
+  })
+})
+
+describe('createFallbackProvenance', () => {
+  it('produces FALLBACK provenance for substituted data', () => {
+    const p = createFallbackProvenance({
+      source: 'CANADIAN_PLACEHOLDER',
+      provider: 'Twelve Data (not configured)',
+      fallbackReason: 'Twelve Data API key not configured',
+    })
+    expect(p.status).toBe('FALLBACK')
+    expect(p.source).toBe('CANADIAN_PLACEHOLDER')
+    expect(p.fallbackReason).toBe('Twelve Data API key not configured')
+    expect(p.fetchedAt).toBeTruthy()
+  })
+
+  it('defaults the source to UNKNOWN', () => {
+    expect(createFallbackProvenance().source).toBe('UNKNOWN')
+  })
+
+  it('is not usable for trading or analytics', () => {
+    const p = createFallbackProvenance({ source: 'CANADIAN_PLACEHOLDER' })
+    expect(isDataUsableForTrading(p)).toBe(false)
+    expect(isDataUsableForAnalytics(p)).toBe(false)
   })
 })

@@ -13,7 +13,11 @@ import type {
   PriceRange,
 } from './types'
 import type { MarketMovers } from './types'
-import { createLiveProvenance, createErrorProvenance } from '@/lib/provenance/provenance'
+import {
+  createLiveProvenance,
+  createErrorProvenance,
+  createFallbackProvenance,
+} from '@/lib/provenance/provenance'
 
 // ─── Polygon Indices ──────────────────────────────────────────────────────────
 
@@ -189,8 +193,9 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
   // ─── getQuote ─────────────────────────────────────────────────────────────
 
   async getQuote(symbol: string): Promise<Quote> {
-    if (!this.apiKey) return this.degradedQuote(symbol)
-    if (CANADIAN_RE.test(symbol)) return this.degradedQuote(symbol)
+    if (!this.apiKey) return this.degradedQuote(symbol, 'API key not configured')
+    if (CANADIAN_RE.test(symbol))
+      return this.degradedQuote(symbol, 'Polygon US equities endpoint does not support this symbol')
 
     const cached = this.quoteCache.get(symbol)
     if (cached && Date.now() - cached.fetchedAt < QUOTE_CACHE_TTL_MS) return cached.quote
@@ -202,7 +207,7 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
     }
 
     if (res.status === 403) return this.recordQuoteError(symbol, 'API key rejected (403)')
-    if (res.status === 404) return this.degradedQuote(symbol)
+    if (res.status === 404) return this.degradedQuote(symbol, `Symbol not found: ${symbol}`)
     if (!res.ok) return this.recordQuoteError(symbol, `HTTP ${res.status}`)
 
     let body: PolygonSnapshotResponse
@@ -244,19 +249,17 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
   // ─── getHistoricalPrices ──────────────────────────────────────────────────
 
   async getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
-    // Canadian symbols — degrade immediately
+    // Canadian symbols — degrade immediately (no live attempt → FALLBACK)
     if (CANADIAN_RE.test(symbol)) {
-      const fb = await this.fallback.getHistoricalPrices(symbol, range)
-      return {
-        ...fb,
-        trustMode: 'DEGRADED',
-        fallbackReason: 'Polygon US equities endpoint does not support this symbol',
-      }
+      return this.degradedHistory(
+        symbol,
+        range,
+        'Polygon US equities endpoint does not support this symbol',
+      )
     }
 
     if (!this.apiKey) {
-      const fb = await this.fallback.getHistoricalPrices(symbol, range)
-      return { ...fb, trustMode: 'DEGRADED', fallbackReason: 'API key not configured' }
+      return this.degradedHistory(symbol, range, 'API key not configured')
     }
 
     const cacheKey = `${symbol}::${range}`
@@ -270,16 +273,17 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
     let res: Response
     try { res = await fetch(url) } catch (err) {
-      return this.degradedHistory(symbol, range, err instanceof Error ? err.message : 'Network error')
+      return this.degradedHistory(symbol, range, err instanceof Error ? err.message : 'Network error', true)
     }
 
-    if (res.status === 403) return this.degradedHistory(symbol, range, 'API key rejected (403)')
+    if (res.status === 403) return this.degradedHistory(symbol, range, 'API key rejected (403)', true)
+    // 404 = symbol not found: no live data available, not a transport error → FALLBACK
     if (res.status === 404) return this.degradedHistory(symbol, range, `Symbol not found: ${symbol}`)
-    if (!res.ok) return this.degradedHistory(symbol, range, `HTTP ${res.status}`)
+    if (!res.ok) return this.degradedHistory(symbol, range, `HTTP ${res.status}`, true)
 
     let body: PolygonAggsResponse
     try { body = (await res.json()) as PolygonAggsResponse } catch {
-      return this.degradedHistory(symbol, range, 'Failed to parse Polygon response body')
+      return this.degradedHistory(symbol, range, 'Failed to parse Polygon response body', true)
     }
 
     // Dev-only: log response shape without printing the key
@@ -302,7 +306,7 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       // Actual API error — surface the message Polygon gave us
       const reason = body.error ?? body.message
         ?? `Polygon returned unexpected status: ${body.status ?? 'unknown'}`
-      return this.degradedHistory(symbol, range, reason)
+      return this.degradedHistory(symbol, range, reason, true)
     }
 
     if (rawBars.length === 0) {
@@ -373,24 +377,28 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  // `reason` is set only when a live fetch actually errored; in that case the
-  // returned (mock) value carries ERROR provenance capturing the failure. Plain
-  // fallbacks (no key, unsupported symbol) inherit the mock provider's MOCK
-  // provenance, which truthfully reflects that no live attempt produced data.
-  private async degradedQuote(symbol: string, reason?: string): Promise<Quote> {
+  // `errored` is true only when a live fetch actually failed (network/HTTP/parse),
+  // yielding ERROR provenance. Intentional fallbacks where no live quote was
+  // attempted or available (no key, unsupported symbol, 404) are FALLBACK — the
+  // served value is mock, but the envelope records *why* it was substituted.
+  private async degradedQuote(symbol: string, reason: string, errored = false): Promise<Quote> {
     const base = await this.fallback.getQuote(symbol)
     return {
       ...base,
       symbol,
       trustMode: 'DEGRADED' as const,
-      provenance: reason
+      provenance: errored
         ? createErrorProvenance({
             source: 'POLYGON',
             provider: 'Polygon.io',
             error: reason,
             fallbackReason: 'Served mock quote after Polygon fetch failed',
           })
-        : base.provenance,
+        : createFallbackProvenance({
+            source: 'POLYGON',
+            provider: 'Polygon.io',
+            fallbackReason: reason,
+          }),
     }
   }
 
@@ -398,15 +406,34 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
     this.lastStatus = 'DEGRADED'
     this.lastError = reason
     this.lastCheck = new Date().toISOString()
-    return this.degradedQuote(symbol, reason)
+    return this.degradedQuote(symbol, reason, true)
   }
 
+  // `errored` distinguishes a failed live fetch (ERROR) from an intentional
+  // fallback where no live data was attempted/available (FALLBACK).
   private async degradedHistory(
     symbol: string,
     range: PriceRange,
     reason: string,
+    errored = false,
   ): Promise<HistoricalPricesResult> {
     const fb = await this.fallback.getHistoricalPrices(symbol, range)
-    return { ...fb, trustMode: 'DEGRADED', fallbackReason: reason }
+    return {
+      ...fb,
+      trustMode: 'DEGRADED',
+      fallbackReason: reason,
+      provenance: errored
+        ? createErrorProvenance({
+            source: 'POLYGON',
+            provider: 'Polygon.io',
+            error: reason,
+            fallbackReason: 'Served mock bars after Polygon fetch failed',
+          })
+        : createFallbackProvenance({
+            source: 'POLYGON',
+            provider: 'Polygon.io',
+            fallbackReason: reason,
+          }),
+    }
   }
 }

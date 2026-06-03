@@ -6,7 +6,9 @@ import { MetricCard } from '@/components/ui/MetricCard'
 import { formatNumber, formatCompact, formatDateTime, pnlClass, formatPct } from '@/lib/format'
 import type { Quote } from '@/types/market'
 import type { OHLCVBar, HistoricalPricesResult, PriceRange } from '@/services/market/types'
+import type { DataProvenance } from '@/types/provenance'
 import { computeTechnicalIndicators } from '@/lib/analytics/technicalIndicators'
+import { formatProvenanceLabel } from '@/lib/provenance/provenance'
 import { useFundamentals } from '@/hooks/useFundamentals'
 
 const RANGES: PriceRange[] = ['1D', '1W', '1M', '3M', '1Y']
@@ -107,6 +109,21 @@ function ChartBadge({ result }: { result: HistoricalPricesResult }) {
   return (
     <span className="text-2xs font-mono text-terminalAmber border border-terminalAmber/40 px-1.5 py-0.5">
       CHART: MOCK FALLBACK
+    </span>
+  )
+}
+
+// Read-only provenance disclosure (Phase 0B-2). Additive — sits alongside the
+// existing trustMode-derived badges without replacing them.
+function ProvenanceLabel({ provenance }: { provenance?: DataProvenance }) {
+  if (!provenance) return null
+  const detail = provenance.fallbackReason ?? provenance.error
+  return (
+    <span
+      className="text-2xs font-mono text-terminalMuted/70"
+      title={detail ?? formatProvenanceLabel(provenance)}
+    >
+      {formatProvenanceLabel(provenance)}
     </span>
   )
 }
@@ -264,6 +281,7 @@ export function SecurityDetail() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <ProviderBadge quote={quote} symbol={activeSymbol} />
                   <QuoteBadge quote={quote} symbol={activeSymbol} />
+                  <ProvenanceLabel provenance={quote.provenance} />
                   {quote.trustMode === 'DEGRADED' && CANADIAN_RE.test(activeSymbol) && (
                     <span className="text-2xs font-mono text-terminalMuted/70">
                       Canadian market provider not configured
@@ -314,6 +332,7 @@ export function SecurityDetail() {
           action={
             <div className="flex items-center gap-3">
               {chartResult && <ChartBadge result={chartResult} />}
+              {chartResult && <ProvenanceLabel provenance={chartResult.provenance} />}
               <div className="flex gap-0.5">
                 {RANGES.map(r => (
                   <button

@@ -38,6 +38,10 @@ export class CanadianMarketDataProvider implements IMarketDataProvider {
   getMovers(): MarketMovers { return this.fallback.getMovers() }
   getMarketBreadth(): MarketBreadth { return this.fallback.getMarketBreadth() }
 
+  // Quote/history (and their provenance envelopes) are produced by the delegated
+  // adapter — see TwelveDataAdapter, which emits LIVE / FALLBACK / ERROR
+  // provenance. This provider intentionally adds no provenance of its own so the
+  // envelope reflects the concrete backend that served the data.
   getQuote(symbol: string): Promise<Quote> {
     return this.adapter.getQuote(symbol)
   }

@@ -276,6 +276,79 @@ describe('malformed response handling', () => {
   })
 })
 
+// ─── Provenance classification ──────────────────────────────────────────────
+
+describe('provenance classification', () => {
+  it('successful quote with stale timestamp → STALE provenance', async () => {
+    // twelveQuote() datetime is 2024-01-15, far past the staleness threshold
+    vi.stubGlobal('fetch', mockFetchOk(twelveQuote()))
+    const adapter = new TwelveDataAdapter()
+    const quote = await adapter.getQuote('RY.TO')
+
+    expect(quote.provenance?.source).toBe('TWELVE_DATA')
+    expect(quote.provenance?.status).toBe('STALE')
+  })
+
+  it('successful quote with fresh timestamp → LIVE provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk(twelveQuote({ datetime: new Date().toISOString() })))
+    const adapter = new TwelveDataAdapter()
+    const quote = await adapter.getQuote('RY.TO')
+
+    expect(quote.provenance?.status).toBe('LIVE')
+  })
+
+  it('successful history → LIVE provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk(twelveTimeSeries([twelveBar('2024-01-15', '132.50')])))
+    const adapter = new TwelveDataAdapter()
+    const result = await adapter.getHistoricalPrices('RY.TO', '1M')
+
+    expect(result.provenance?.source).toBe('TWELVE_DATA')
+    expect(result.provenance?.status).toBe('LIVE')
+  })
+
+  it('no API key → FALLBACK provenance (Canadian placeholder)', async () => {
+    vi.stubEnv('VITE_TWELVE_DATA_API_KEY', '')
+    vi.stubGlobal('fetch', vi.fn())
+    const adapter = new TwelveDataAdapter()
+    const quote = await adapter.getQuote('RY.TO')
+
+    expect(quote.provenance?.status).toBe('FALLBACK')
+    expect(quote.provenance?.source).toBe('CANADIAN_PLACEHOLDER')
+  })
+
+  it('non-Canadian symbol → FALLBACK provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const adapter = new TwelveDataAdapter()
+    const quote = await adapter.getQuote('AAPL')
+
+    expect(quote.provenance?.status).toBe('FALLBACK')
+  })
+
+  it('network failure → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Failed to fetch')))
+    const adapter = new TwelveDataAdapter()
+    const quote = await adapter.getQuote('RY.TO')
+
+    expect(quote.provenance?.status).toBe('ERROR')
+  })
+
+  it('history HTTP 403 → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchStatus(403))
+    const adapter = new TwelveDataAdapter()
+    const result = await adapter.getHistoricalPrices('RY.TO', '1M')
+
+    expect(result.provenance?.status).toBe('ERROR')
+  })
+
+  it('history empty values → ERROR provenance', async () => {
+    vi.stubGlobal('fetch', mockFetchOk({ meta: {}, values: [], status: 'ok' }))
+    const adapter = new TwelveDataAdapter()
+    const result = await adapter.getHistoricalPrices('RY.TO', '1M')
+
+    expect(result.provenance?.status).toBe('ERROR')
+  })
+})
+
 // ─── Caching ──────────────────────────────────────────────────────────────────
 
 describe('caching', () => {
