@@ -13,6 +13,7 @@ import type {
   PriceRange,
 } from './types'
 import type { MarketMovers } from './types'
+import { createLiveProvenance, createErrorProvenance } from '@/lib/provenance/provenance'
 
 // ─── Polygon Indices ──────────────────────────────────────────────────────────
 
@@ -216,6 +217,7 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
     const t = body.ticker
     const price = t.day?.c ?? t.prevDay?.c ?? t.lastTrade?.p ?? 0
     const updatedMs = t.updated ? Math.floor(t.updated / 1_000_000) : Date.now()
+    const asOf = new Date(updatedMs).toISOString()
 
     const quote: Quote = {
       symbol: t.ticker ?? symbol,
@@ -227,8 +229,9 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       marketCap: undefined,
       currency: 'USD',
       exchange: 'Polygon.io',
-      lastUpdated: new Date(updatedMs).toISOString(),
+      lastUpdated: asOf,
       trustMode: 'TRUSTED',
+      provenance: createLiveProvenance({ source: 'POLYGON', provider: 'Polygon.io', asOf }),
     }
 
     this.quoteCache.set(symbol, { quote, fetchedAt: Date.now() })
@@ -335,6 +338,11 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
       provider: 'Polygon.io',
       trustMode: 'TRUSTED',
       isStale,
+      provenance: createLiveProvenance({
+        source: 'POLYGON',
+        provider: 'Polygon.io',
+        isDelayed: isStale,
+      }),
     }
 
     this.historyCache.set(cacheKey, { result, fetchedAt: Date.now() })
@@ -365,16 +373,32 @@ export class PolygonMarketDataProvider implements IMarketDataProvider {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private async degradedQuote(symbol: string): Promise<Quote> {
+  // `reason` is set only when a live fetch actually errored; in that case the
+  // returned (mock) value carries ERROR provenance capturing the failure. Plain
+  // fallbacks (no key, unsupported symbol) inherit the mock provider's MOCK
+  // provenance, which truthfully reflects that no live attempt produced data.
+  private async degradedQuote(symbol: string, reason?: string): Promise<Quote> {
     const base = await this.fallback.getQuote(symbol)
-    return { ...base, symbol, trustMode: 'DEGRADED' as const }
+    return {
+      ...base,
+      symbol,
+      trustMode: 'DEGRADED' as const,
+      provenance: reason
+        ? createErrorProvenance({
+            source: 'POLYGON',
+            provider: 'Polygon.io',
+            error: reason,
+            fallbackReason: 'Served mock quote after Polygon fetch failed',
+          })
+        : base.provenance,
+    }
   }
 
   private async recordQuoteError(symbol: string, reason: string): Promise<Quote> {
     this.lastStatus = 'DEGRADED'
     this.lastError = reason
     this.lastCheck = new Date().toISOString()
-    return this.degradedQuote(symbol)
+    return this.degradedQuote(symbol, reason)
   }
 
   private async degradedHistory(

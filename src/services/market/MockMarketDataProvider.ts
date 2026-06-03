@@ -23,6 +23,7 @@ import {
   MOCK_SECURITY_QUOTE,
   MOCK_PROVIDER_HEALTH,
 } from '@/lib/mockData'
+import { createMockProvenance } from '@/lib/provenance/provenance'
 
 // Deterministic pseudo-random using sin — same symbol+index always gives same value
 function det(seed: number, i: number): number {
@@ -98,7 +99,11 @@ export class MockMarketDataProvider implements IMarketDataProvider {
   getMarketBreadth(): MarketBreadth { return MOCK_MARKET_BREADTH }
 
   async getQuote(symbol: string): Promise<Quote> {
-    return { ...MOCK_SECURITY_QUOTE, symbol }
+    return {
+      ...MOCK_SECURITY_QUOTE,
+      symbol,
+      provenance: createMockProvenance({ provider: this.name }),
+    }
   }
 
   async getHistoricalPrices(symbol: string, range: PriceRange): Promise<HistoricalPricesResult> {
@@ -109,6 +114,7 @@ export class MockMarketDataProvider implements IMarketDataProvider {
       provider: 'MockMarketDataProvider',
       trustMode: 'DEGRADED',
       isStale: false,
+      provenance: createMockProvenance({ provider: this.name }),
     }
   }
 

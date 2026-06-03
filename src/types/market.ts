@@ -1,3 +1,5 @@
+import type { DataProvenance } from './provenance'
+
 export type TrustMode = 'TRUSTED' | 'DEGRADED' | 'INSUFFICIENT_DATA' | 'UNTRUSTED'
 
 export interface Quote {
@@ -12,6 +14,12 @@ export interface Quote {
   exchange: string
   lastUpdated: string
   trustMode: TrustMode
+  /**
+   * Optional provenance envelope (Phase 0B). Additive — existing consumers that
+   * rely only on `trustMode` are unaffected. Populated by market-data providers
+   * where available.
+   */
+  provenance?: DataProvenance
 }
 
 export interface IndexCard {

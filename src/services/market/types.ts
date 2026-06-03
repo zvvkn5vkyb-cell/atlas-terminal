@@ -12,6 +12,14 @@ export type {
 
 import type { Mover } from '@/types/market'
 import type { TrustMode } from '@/types/market'
+import type { DataProvenance } from '@/types/provenance'
+
+export type {
+  DataProvenance,
+  DataPoint,
+  DataQualityStatus,
+  MarketDataSource,
+} from '@/types/provenance'
 
 export type DataSource = 'MOCK' | 'LIVE' | 'HYBRID'
 
@@ -39,4 +47,9 @@ export interface HistoricalPricesResult {
   trustMode: TrustMode
   isStale: boolean
   fallbackReason?: string
+  /**
+   * Optional provenance envelope (Phase 0B). Additive — existing consumers that
+   * rely only on `trustMode`/`isStale` are unaffected.
+   */
+  provenance?: DataProvenance
 }
