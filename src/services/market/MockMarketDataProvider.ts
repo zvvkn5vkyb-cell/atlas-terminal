@@ -24,6 +24,7 @@ import {
   MOCK_PROVIDER_HEALTH,
 } from '@/lib/mockData'
 import { createMockProvenance } from '@/lib/provenance/provenance'
+import { getSecurityByExactSymbol } from '@/services/security/securityMaster'
 
 // Deterministic pseudo-random using sin — same symbol+index always gives same value
 function det(seed: number, i: number): number {
@@ -99,9 +100,13 @@ export class MockMarketDataProvider implements IMarketDataProvider {
   getMarketBreadth(): MarketBreadth { return MOCK_MARKET_BREADTH }
 
   async getQuote(symbol: string): Promise<Quote> {
+    const sec = getSecurityByExactSymbol(symbol)
     return {
       ...MOCK_SECURITY_QUOTE,
       symbol,
+      name: sec?.name ?? MOCK_SECURITY_QUOTE.name,
+      currency: sec?.currency ?? MOCK_SECURITY_QUOTE.currency,
+      exchange: sec?.exchange ?? MOCK_SECURITY_QUOTE.exchange,
       provenance: createMockProvenance({ provider: this.name }),
     }
   }
