@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '@/store/workspaceStore'
 import type { CommandItem } from '@/types/system'
 import type { ModuleId } from '@/types/system'
 import { NAV_MODULES } from '@/lib/constants'
+import { resolveSymbolForNavigation } from '@/lib/symbolNavigation'
 
 // Matches valid ticker patterns: 1-12 chars, letters + digits + dot
 const TICKER_RE = /^[A-Za-z][A-Za-z0-9.]{0,11}$/
@@ -90,15 +91,34 @@ export function useCommandPalette() {
         c.keywords?.some(k => k.includes(q))
     )
 
-    // If the query looks like a ticker, prepend a direct "View SYMBOL" action
+    // If the query looks like a ticker, resolve it before creating the action.
+    // AMBIGUOUS symbols (e.g. bare "RY") expand into one item per candidate so
+    // the user explicitly picks a listing rather than silently landing on one.
     if (TICKER_RE.test(trimmed)) {
       const sym = trimmed.toUpperCase()
+      const navResult = resolveSymbolForNavigation(sym)
+
+      if (navResult.action === 'choose') {
+        const candidateItems: CommandItem[] = navResult.candidates.map(c => ({
+          id: `sym-ambiguous-${c.securityId}`,
+          label: `View ${c.symbol}  ·  ${c.exchange}  ${c.currency}`,
+          category: 'symbol' as const,
+          action: () => {
+            navigateToSymbol(c.symbol)
+            setCommandPaletteOpen(false)
+          },
+          keywords: [c.symbol.toLowerCase(), sym.toLowerCase()],
+        }))
+        return [...candidateItems, ...results].slice(0, 10)
+      }
+
+      // RESOLVED (canonical symbol) or UNKNOWN (pass-through to provider)
       const viewCmd: CommandItem = {
         id: `sym-view-${sym}`,
-        label: `View ${sym}`,
+        label: `View ${navResult.symbol}`,
         category: 'symbol' as const,
         action: () => {
-          navigateToSymbol(sym)
+          navigateToSymbol(navResult.symbol)
           setCommandPaletteOpen(false)
         },
         keywords: [sym.toLowerCase()],

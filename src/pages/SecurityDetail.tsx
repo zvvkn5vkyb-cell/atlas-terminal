@@ -10,6 +10,8 @@ import type { DataProvenance } from '@/types/provenance'
 import { computeTechnicalIndicators } from '@/lib/analytics/technicalIndicators'
 import { formatProvenanceLabel } from '@/lib/provenance/provenance'
 import { useFundamentals } from '@/hooks/useFundamentals'
+import { resolveSymbolForNavigation } from '@/lib/symbolNavigation'
+import type { Security } from '@/types/security'
 
 const RANGES: PriceRange[] = ['1D', '1W', '1M', '3M', '1Y']
 const CANADIAN_RE = /\.(TO|TSX|V)$/i
@@ -174,6 +176,44 @@ function week52Note(yearResult: HistoricalPricesResult | undefined): string | un
   return undefined
 }
 
+// ─── Ambiguity chooser ────────────────────────────────────────────────────────
+
+interface AmbiguityChooserProps {
+  candidates: Security[]
+  onChoose: (symbol: string) => void
+  onDismiss: () => void
+}
+
+function AmbiguityChooser({ candidates, onChoose, onDismiss }: AmbiguityChooserProps) {
+  return (
+    <div className="border border-terminalAmber/50 bg-terminalPanel px-3 py-2 flex flex-col gap-1.5">
+      <div className="text-2xs font-mono text-terminalAmber uppercase tracking-wider">
+        Ambiguous symbol — select listing:
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {candidates.map(c => (
+          <button
+            key={c.securityId}
+            onClick={() => onChoose(c.symbol)}
+            className="text-xs font-mono text-terminalText border border-terminalBorder px-2 py-0.5 hover:border-terminalAmber hover:text-terminalAmber transition-colors"
+          >
+            {c.symbol}
+            <span className="text-terminalMuted font-mono text-2xs ml-2">
+              {c.exchange} · {c.currency}
+            </span>
+          </button>
+        ))}
+        <button
+          onClick={onDismiss}
+          className="text-2xs font-mono text-terminalMuted/60 hover:text-terminalMuted transition-colors ml-auto"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Symbol input ─────────────────────────────────────────────────────────────
 
 interface SymbolInputProps {
@@ -228,6 +268,7 @@ export function SecurityDetail() {
   const { activeSymbol, setActiveSymbol } = useWorkspaceStore()
   const { quoteCache, priceHistoryCache, loadQuote, loadPriceHistory } = useMarketStore()
   const [activeRange, setActiveRange] = useState<PriceRange>('1M')
+  const [pendingAmbiguous, setPendingAmbiguous] = useState<Security[] | null>(null)
 
   // Load on symbol or range change
   useEffect(() => {
@@ -239,6 +280,12 @@ export function SecurityDetail() {
   useEffect(() => {
     void loadPriceHistory(activeSymbol, activeRange)
   }, [activeRange, activeSymbol]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear any pending disambiguation when the active symbol changes externally
+  // (e.g. command palette navigates while the chooser is showing).
+  useEffect(() => {
+    setPendingAmbiguous(null)
+  }, [activeSymbol])
 
   const fundamentals = useFundamentals(activeSymbol)
 
@@ -254,13 +301,30 @@ export function SecurityDetail() {
   }, [yearResult])
 
   const handleSymbolCommit = (sym: string) => {
-    setActiveSymbol(sym)
+    const navResult = resolveSymbolForNavigation(sym)
+    if (navResult.action === 'choose') {
+      setPendingAmbiguous(navResult.candidates)
+      return
+    }
+    setPendingAmbiguous(null)
+    setActiveSymbol(navResult.symbol)
   }
 
   return (
     <div className="p-2 flex flex-col gap-2">
       {/* Symbol input bar */}
       <SymbolInput currentSymbol={activeSymbol} onCommit={handleSymbolCommit} />
+      {/* Ambiguity chooser — shown when user enters an under-qualified symbol */}
+      {pendingAmbiguous && (
+        <AmbiguityChooser
+          candidates={pendingAmbiguous}
+          onChoose={(sym) => {
+            setPendingAmbiguous(null)
+            setActiveSymbol(sym)
+          }}
+          onDismiss={() => setPendingAmbiguous(null)}
+        />
+      )}
 
       {/* Loading state */}
       {!quote ? (
