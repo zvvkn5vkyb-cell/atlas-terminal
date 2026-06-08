@@ -5,6 +5,8 @@ import {
   normalizeWeights,
   computeRefreshedState,
   computeSummary,
+  buildPriceRefreshAuditParams,
+  DEFAULT_PORTFOLIO_ID,
 } from './portfolioRefresh'
 import type { Quote } from '@/types/market'
 import type { Holding, CashPosition } from '@/types/portfolio'
@@ -373,6 +375,87 @@ describe('computeRefreshedState', () => {
     const { holdings } = computeRefreshedState([h], NO_CASH, [])
     expect(holdings[0].currentPrice).toBe(130)
     expect(holdings[0].currentValue).toBe(13_000)
+  })
+})
+
+// ─── buildPriceRefreshAuditParams ────────────────────────────────────────────
+
+describe('buildPriceRefreshAuditParams', () => {
+  const BASE: Parameters<typeof buildPriceRefreshAuditParams>[0] = {
+    previousSourceMap: { AAPL: 'MOCK', MSFT: 'MOCK' },
+    newSourceMap: { AAPL: 'LIVE', MSFT: 'FALLBACK' },
+    holdingCount: 2,
+    resolvedCount: 2,
+    completedAt: '2026-01-01T16:00:00.000Z',
+  }
+
+  it('returns correct category, action, entityType', () => {
+    const p = buildPriceRefreshAuditParams(BASE)
+    expect(p.category).toBe('MARKET_DATA')
+    expect(p.action).toBe('MARKET_DATA.PRICE_REFRESH')
+    expect(p.entityType).toBe('PORTFOLIO')
+  })
+
+  it('uses DEFAULT_PORTFOLIO_ID as entityId', () => {
+    expect(buildPriceRefreshAuditParams(BASE).entityId).toBe(DEFAULT_PORTFOLIO_ID)
+  })
+
+  it('uses SYSTEM as source', () => {
+    expect(buildPriceRefreshAuditParams(BASE).source).toBe('SYSTEM')
+  })
+
+  it('severity is INFO when resolvedCount > 0', () => {
+    expect(buildPriceRefreshAuditParams({ ...BASE, resolvedCount: 1 }).severity).toBe('INFO')
+  })
+
+  it('severity is WARNING when resolvedCount is 0 and holdingCount > 0', () => {
+    expect(buildPriceRefreshAuditParams({ ...BASE, resolvedCount: 0, holdingCount: 2 }).severity).toBe('WARNING')
+  })
+
+  it('severity is INFO when both resolvedCount and holdingCount are 0', () => {
+    const p = buildPriceRefreshAuditParams({ ...BASE, resolvedCount: 0, holdingCount: 0, newSourceMap: {} })
+    expect(p.severity).toBe('INFO')
+  })
+
+  it('before.priceSourceMap matches previousSourceMap', () => {
+    const p = buildPriceRefreshAuditParams(BASE)
+    expect((p.before as Record<string, unknown>).priceSourceMap).toEqual(BASE.previousSourceMap)
+  })
+
+  it('after.priceSourceMap matches newSourceMap', () => {
+    const p = buildPriceRefreshAuditParams(BASE)
+    expect((p.after as Record<string, unknown>).priceSourceMap).toEqual(BASE.newSourceMap)
+  })
+
+  it('metadata includes holdingCount and resolvedCount', () => {
+    const m = buildPriceRefreshAuditParams(BASE).metadata as Record<string, unknown>
+    expect(m.holdingCount).toBe(2)
+    expect(m.resolvedCount).toBe(2)
+  })
+
+  it('metadata per-source counts reflect newSourceMap', () => {
+    const m = buildPriceRefreshAuditParams(BASE).metadata as Record<string, unknown>
+    expect(m.liveCount).toBe(1)      // AAPL → LIVE
+    expect(m.fallbackCount).toBe(1)  // MSFT → FALLBACK
+    expect(m.mockCount).toBe(0)
+    expect(m.canadaCount).toBe(0)
+  })
+
+  it('metadata counts CANADA source correctly', () => {
+    const input = { ...BASE, newSourceMap: { 'RY.TO': 'CANADA' as const, AAPL: 'MOCK' as const } }
+    const m = buildPriceRefreshAuditParams(input).metadata as Record<string, unknown>
+    expect(m.canadaCount).toBe(1)
+    expect(m.mockCount).toBe(1)
+    expect(m.liveCount).toBe(0)
+  })
+
+  it('metadata includes completedAt', () => {
+    const m = buildPriceRefreshAuditParams(BASE).metadata as Record<string, unknown>
+    expect(m.completedAt).toBe('2026-01-01T16:00:00.000Z')
+  })
+
+  it('does not throw', () => {
+    expect(() => buildPriceRefreshAuditParams(BASE)).not.toThrow()
   })
 })
 

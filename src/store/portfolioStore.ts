@@ -16,11 +16,13 @@ import {
 } from '@/lib/mockData'
 import { MarketDataService } from '@/services/market/MarketDataService'
 import { PORTFOLIO_STORAGE_KEY } from '@/store/workspaceStore'
+import { recordAudit } from '@/services/audit/auditLog'
 import {
   type PriceSource,
   computeSummary,
   computeRefreshedState,
   CANADIAN_RE,
+  buildPriceRefreshAuditParams,
 } from '@/store/portfolioRefresh'
 
 // Re-export for UI components that import PriceSource or computeSummary from this module
@@ -63,7 +65,7 @@ export const usePortfolioStore = create<PortfolioState>()(
       refreshPrices: async () => {
         set({ isRefreshing: true })
 
-        const { holdings, cashPositions } = get()
+        const { holdings, cashPositions, priceSourceMap: previousSourceMap } = get()
         const svc = MarketDataService.getInstance()
 
         const settled = await Promise.allSettled(
@@ -81,13 +83,24 @@ export const usePortfolioStore = create<PortfolioState>()(
         const { holdings: updated, priceSourceMap: sourceMap, summary } =
           computeRefreshedState(holdings, cashPositions, quoteResults)
 
+        const completedAt = new Date().toISOString()
+
         set({
           holdings: updated,
           priceSourceMap: sourceMap,
           summary,
           isRefreshing: false,
-          lastPriceRefresh: new Date().toISOString(),
+          lastPriceRefresh: completedAt,
         })
+
+        // Fire-and-forget: AuditWriteResult never throws; refresh succeeds regardless.
+        recordAudit(buildPriceRefreshAuditParams({
+          previousSourceMap,
+          newSourceMap: sourceMap,
+          holdingCount: holdings.length,
+          resolvedCount: quoteResults.length,
+          completedAt,
+        }))
       },
     }),
     {

@@ -1,5 +1,6 @@
 import type { Quote, TrustMode } from '@/types/market'
 import type { Holding, CashPosition, PortfolioSummary } from '@/types/portfolio'
+import type { CreateAuditEntryParams } from '@/services/audit/auditLog'
 
 // ─── PriceSource ──────────────────────────────────────────────────────────────
 // Defined here (source of truth); re-exported by portfolioStore for UI imports.
@@ -122,5 +123,42 @@ export function computeRefreshedState(
     holdings: updated,
     priceSourceMap: sourceMap,
     summary: computeSummary(updated, cashPositions),
+  }
+}
+
+// ─── Audit helper — price refresh event ──────────────────────────────────────
+// Pure: no side-effects, fully testable in Node env. Called by portfolioStore
+// after refreshPrices() completes.
+
+export const DEFAULT_PORTFOLIO_ID = 'DEFAULT_PORTFOLIO'
+
+export interface PriceRefreshAuditInput {
+  previousSourceMap: Record<string, PriceSource>
+  newSourceMap: Record<string, PriceSource>
+  holdingCount: number
+  resolvedCount: number
+  completedAt: string
+}
+
+export function buildPriceRefreshAuditParams(input: PriceRefreshAuditInput): CreateAuditEntryParams {
+  const { previousSourceMap, newSourceMap, holdingCount, resolvedCount, completedAt } = input
+  let liveCount = 0, fallbackCount = 0, mockCount = 0, canadaCount = 0
+  for (const src of Object.values(newSourceMap)) {
+    if (src === 'LIVE') liveCount++
+    else if (src === 'FALLBACK') fallbackCount++
+    else if (src === 'MOCK') mockCount++
+    else if (src === 'CANADA') canadaCount++
+  }
+  return {
+    category: 'MARKET_DATA',
+    action: 'MARKET_DATA.PRICE_REFRESH',
+    entityType: 'PORTFOLIO',
+    entityId: DEFAULT_PORTFOLIO_ID,
+    source: 'SYSTEM',
+    severity: resolvedCount === 0 && holdingCount > 0 ? 'WARNING' : 'INFO',
+    reason: 'Portfolio price refresh completed',
+    before: { priceSourceMap: previousSourceMap },
+    after: { priceSourceMap: newSourceMap },
+    metadata: { holdingCount, resolvedCount, liveCount, fallbackCount, mockCount, canadaCount, completedAt },
   }
 }
