@@ -1,14 +1,27 @@
-import type { CostBasisMethod, TransactionType } from '@/types/ledger'
+import type { CostBasisMethod, LedgerState, TransactionType } from '@/types/ledger'
 
 export const DEFAULT_ACCOUNT_ID = 'DEFAULT_ACCOUNT'
 export const LEDGER_BASE_CURRENCY = 'USD'
 export const DEFAULT_COST_BASIS_METHOD: CostBasisMethod = 'AVERAGE'
 
-// Audit action constants for future Phase 1-2 wiring
+// Audit action constants for Phase 1-2 wiring
 export const AUDIT_ACTION_TRANSACTION_CREATE = 'TRANSACTION.CREATE'
 export const AUDIT_ACTION_TRANSACTION_UPDATE = 'TRANSACTION.UPDATE'
 export const AUDIT_ACTION_TRANSACTION_DELETE = 'TRANSACTION.DELETE'
 export const AUDIT_ACTION_TRANSACTION_IMPORT = 'TRANSACTION.IMPORT'
+export const AUDIT_ACTION_TRANSACTION_CLEAR = 'TRANSACTION.CLEAR'
+
+// Empty ledger state — the dormant store's initial value and the result of
+// clearTransactions(). Matches deriveLedgerState([]).
+export const EMPTY_LEDGER_STATE: LedgerState = {
+  positions: [],
+  cashBalances: [],
+  realizedGains: [],
+  income: [],
+  totalFees: {},
+  totalTax: {},
+  warnings: [],
+}
 
 // Types that require a security identity (securityId or symbol) and a quantity.
 export const SECURITY_QUANTITY_TYPES: ReadonlySet<TransactionType> = new Set<TransactionType>([

@@ -167,3 +167,14 @@ export interface TransactionValidationResult {
   valid: boolean
   issues: LedgerIssue[]
 }
+
+// ─── Mutation results (Phase 1-2) ─────────────────────────────────────────────
+
+export type LedgerMutationErrorCode = 'VALIDATION_ERROR' | 'DUPLICATE_ID' | 'NOT_FOUND'
+
+export interface LedgerMutationResult {
+  success: boolean
+  transactionId?: string
+  issues: LedgerIssue[]
+  errorCode?: LedgerMutationErrorCode
+}
