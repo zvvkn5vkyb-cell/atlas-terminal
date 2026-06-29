@@ -8,6 +8,7 @@ import { AllocationBlock } from '@/components/portfolio/AllocationBlock'
 import { CashBlock } from '@/components/portfolio/CashBlock'
 import { IntegrityBlock } from '@/components/portfolio/IntegrityBlock'
 import { RiskFlagsBlock } from '@/components/portfolio/RiskFlagsBlock'
+import { ReconciliationPanel } from '@/components/portfolio/ReconciliationPanel'
 import { formatDateTime } from '@/lib/format'
 
 function PriceRefreshBar() {
@@ -110,6 +111,8 @@ export function Portfolio() {
           <IntegrityBlock />
           <RiskFlagsBlock />
         </div>
+
+        <ReconciliationPanel />
       </div>
     </div>
   )
